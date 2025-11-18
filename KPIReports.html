@@ -318,6 +318,16 @@
   const pct = n => (Number(n||0)).toFixed(2) + '%';
   function colorForPct(p, target){ if (p >= target) return '#22c55e'; if (p >= target - 5) return '#f59e0b'; return '#f87171'; }
 
+  function formatTrendLabel(raw){
+    if(!raw) return '—';
+    const parts=String(raw).split('-').map(Number);
+    if(parts.length>=3 && parts.every(n=>!isNaN(n))){
+      const [y,m,d]=parts; const dt=new Date(Date.UTC(y,(m||1)-1,d||1,12));
+      return dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    }
+    return String(raw);
+  }
+
   /* ---------- Trend drawing (unchanged) ---------- */
   function drawSlaTrend(trendArray, targetPct){
     const host = document.getElementById('kpiTrend');
@@ -332,7 +342,8 @@
     data.addColumn('number', 'Target');
     data.addColumn({type:'string', role:'tooltip', p:{html:true}});
     const rows = trendArray.map(t => {
-      const date = String(t.dateLabel || t.date);
+      const dateRaw = t.date || t.dateLabel;
+      const date = t.displayLabel || formatTrendLabel(dateRaw);
       const closed = Number(t.pctClosed || 0);
       const target = Number(targetPct || 95);
       const tip = `
@@ -355,6 +366,7 @@
         0: { type:'area', color:'#22c55e', areaOpacity:0.15, lineWidth:3, pointSize:5 },
         1: { type:'line', color:'#f59e0b', lineWidth:2, lineDashStyle:[6,6], pointSize:0 }
       },
+      focusTarget:'category',
       tooltip: { isHtml:true, trigger:'focus', textStyle:{ color:'#e6edf7' } }
     };
     host.innerHTML = '';
