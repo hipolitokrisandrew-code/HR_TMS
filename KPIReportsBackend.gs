@@ -27,7 +27,7 @@ function __kpi_fromTmsRowsToBuckets__(rows){
   rows.forEach(r=>{
     const service=String(r['Service']||'').trim()||'Unspecified';
     const step=String(r['Process Step']||'').trim()||'—';
-    const key=service+'␟'+step;
+    const key=service+'|'+step;
     if(!bucket[key]) bucket[key]={service,step,closedWithin:0,closedExceed:0,openExceed:0,openWithin:0,newlyOpened:0};
     const ended=!!(r['End']&&String(r['End']).trim()!=='');
     const tat=parseFloat(String(r['TAT (mins)']||r['Total TAT (mins)']||'0').replace(/,/g,''))||0;
@@ -141,7 +141,7 @@ function getKPIReportDataV2Backend(filters){
       });
       Object.keys(dayAgg).sort().forEach(k=>{
         const d=dayAgg[k]; const closed=(d.closedWithin||0)+(d.closedExceed||0); const pctClosed=d.total>0?(closed/d.total)*100:0;
-        trend.push({date:d.dateLabel, dateLabel:d.dateLabel, displayLabel:__kpi_fmtTrendLabel__(d.dateLabel), closedWithin:d.closedWithin, closedExceed:d.closedExceed, openWithin:d.openWithin, openExceed:d.openExceed, total:d.total, pctClosed:+pctClosed.toFixed(2)});
+        trend.push({date:d.dateLabel, dateLabel:d.dateLabel, displayLabel:__kpi_fmtTrendLabel__(d.dateLabel), closedWithin:d.closedWithin, closedExceed:d.closedExceed, openWithin:d.openWithin, openExceed:d.openExceed, total:d.total, pctClosed:+pctClosed.toFixed(2), targetPct:targetPct});
       });
       bins.forEach((b,i)=>tatBins.push({label:b.label,count:binCounts[i].count}));
     }
@@ -195,7 +195,7 @@ function getKPIReportDataV3Backend(filters){
         else if(sMs){ if((startMs==null||sMs>=startMs)&&(endMs==null||sMs<=endMs)){ addDay(ymd(sMs), within?'openWithin':'openExceed'); } }
       });
       Object.keys(dayAgg).sort().forEach(k=>{ const d=dayAgg[k]; const closed=(d.closedWithin||0)+(d.closedExceed||0); const pctClosed=d.total>0?(closed/d.total)*100:0;
-        trend.push({date:d.dateLabel, dateLabel:d.dateLabel, displayLabel:__kpi_fmtTrendLabel__(d.dateLabel), closedWithin:d.closedWithin, closedExceed:d.closedExceed, openWithin:d.openWithin, openExceed:d.openExceed, total:d.total, pctClosed:+pctClosed.toFixed(2)});
+        trend.push({date:d.dateLabel, dateLabel:d.dateLabel, displayLabel:__kpi_fmtTrendLabel__(d.dateLabel), closedWithin:d.closedWithin, closedExceed:d.closedExceed, openWithin:d.openWithin, openExceed:d.openExceed, total:d.total, pctClosed:+pctClosed.toFixed(2), targetPct:targetPct});
       });
       bins.forEach((b,i)=>tatBins.push({label:b.label,count:binCounts[i].count}));
     }
