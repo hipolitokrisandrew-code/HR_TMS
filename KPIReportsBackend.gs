@@ -12,10 +12,16 @@ function __kpi_readTmsRowsForSS__(ss, filters){
   const endMs=f.endDate?(new Date(f.endDate).getTime()+24*60*60*1000-1):null;
   return rows.filter(r=>{
     if(!startMs && !endMs) return true;
+    const reqMs=r['Request Date']?new Date(r['Request Date']).getTime():null;
+    const dueMs=r['Due Date']?new Date(r['Due Date']).getTime():null;
     const sMs=r['Start']?new Date(r['Start']).getTime():null;
     const eMs=r['End']?new Date(r['End']).getTime():null;
-    if (eMs!=null){ if((startMs&&eMs<startMs)||(endMs&&eMs>endMs)) return false; return true; }
-    if (sMs!=null){ if((startMs&&sMs<startMs)||(endMs&&sMs>endMs)) return false; return true; }
+
+    const anchorStart=Number.isFinite(reqMs)?reqMs:sMs;
+    const anchorEnd=Number.isFinite(dueMs)?dueMs:(eMs!=null?eMs:anchorStart);
+
+    if (anchorEnd!=null){ if((startMs&&anchorEnd<startMs)||(endMs&&anchorEnd>endMs)) return false; return true; }
+    if (anchorStart!=null){ if((startMs&&anchorStart<startMs)||(endMs&&anchorStart>endMs)) return false; return true; }
     return true;
   });
 }
@@ -24,17 +30,38 @@ function __kpi_readTmsRowsForSS__(ss, filters){
 function __kpi_fromTmsRowsToBuckets__(rows){
   if(!rows||!rows.length) return [];
   const bucket={};
+  const nowMs=Date.now();
+
   rows.forEach(r=>{
     const service=String(r['Service']||'').trim()||'Unspecified';
     const step=String(r['Process Step']||'').trim()||'—';
     const key=service+'|'+step;
-    if(!bucket[key]) bucket[key]={service,step,closedWithin:0,closedExceed:0,openExceed:0,openWithin:0,newlyOpened:0};
+    if(!bucket[key]) bucket[key]={service,step,closedWithin:0,closedExceed:0,openExceed:0,openWithin:0,newlyOpened:0,reminderNotice:0,excessCount:0,minorTerminal:0};
+
     const ended=!!(r['End']&&String(r['End']).trim()!=='');
-    const tat=parseFloat(String(r['TAT (mins)']||r['Total TAT (mins)']||'0').replace(/,/g,''))||0;
-    const exceed=tat>60*24*2;
-    if (ended){ if (exceed) bucket[key].closedExceed+=1; else bucket[key].closedWithin+=1; }
-    else { if (exceed) bucket[key].openExceed+=1; else bucket[key].openWithin+=1; bucket[key].newlyOpened+=0; }
+    const reqMs=r['Request Date']?new Date(r['Request Date']).getTime():null;
+    const dueMs=r['Due Date']?new Date(r['Due Date']).getTime():null;
+    const endMs=r['End']?new Date(r['End']).getTime():null;
+
+    const deadlineMs=Number.isFinite(dueMs)?dueMs:null;
+    const comparisonMs=ended && Number.isFinite(endMs)?endMs:nowMs;
+    const isExceed=deadlineMs!=null?comparisonMs>deadlineMs:false;
+
+    if (ended){
+      if (isExceed) bucket[key].closedExceed+=1; else bucket[key].closedWithin+=1;
+    } else {
+      if (isExceed) bucket[key].openExceed+=1; else bucket[key].openWithin+=1;
+      if(reqMs!=null) bucket[key].newlyOpened+=1;
+      if (deadlineMs!=null){
+        const ONE_DAY=24*60*60*1000;
+        if (!isExceed && (deadlineMs-comparisonMs)<=ONE_DAY) bucket[key].reminderNotice+=1;
+      }
+    }
+
+    bucket[key].excessCount = (bucket[key].closedExceed||0)+(bucket[key].openExceed||0);
+    bucket[key].minorTerminal = bucket[key].closedExceed;
   });
+
   return Object.values(bucket);
 }
 function __kpi_fmtTrendLabel__(ymd){
@@ -72,7 +99,10 @@ function __kpi_enrichFromTmsOnly__(fromTms){
     const totalClosed=(x.closedWithin||0)+(x.closedExceed||0);
     const totalAll=totalClosed+(x.openWithin||0)+(x.openExceed||0)+(x.newlyOpened||0);
     const pctClosed=totalAll>0?(totalClosed/totalAll)*100:0;
-    return Object.assign({},x,{ total:totalAll, reminderNotice:0, excessCount:(x.closedExceed||0)+(x.openExceed||0), minorTerminal:0, pctClosed:+pctClosed.toFixed(2) });
+    const reminderNotice=x.reminderNotice||0;
+    const excessCount=(x.closedExceed||0)+(x.openExceed||0);
+    const minorTerminal=x.minorTerminal||0;
+    return Object.assign({},x,{ total:totalAll, reminderNotice, excessCount, minorTerminal, pctClosed:+pctClosed.toFixed(2) });
   });
 }
 function __kpi_mergeSheetTotalsWithTms__(fromSheet,fromTms){
@@ -81,7 +111,7 @@ function __kpi_mergeSheetTotalsWithTms__(fromSheet,fromTms){
   const out=[];
   Object.keys(byService).forEach(service=>{
     const steps=byService[service];
-    const tot=steps.reduce((a,b)=>({closedWithin:a.closedWithin+(b.closedWithin||0),closedExceed:a.closedExceed+(b.closedExceed||0),openExceed:a.openExceed+(b.openExceed||0),openWithin:a.openWithin+(b.openWithin||0),newlyOpened:a.newlyOpened+(b.newlyOpened||0)}),{closedWithin:0,closedExceed:0,openExceed:0,openWithin:0,newlyOpened:0});
+    const tot=steps.reduce((a,b)=>({closedWithin:a.closedWithin+(b.closedWithin||0),closedExceed:a.closedExceed+(b.closedExceed||0),openExceed:a.openExceed+(b.openExceed||0),openWithin:a.openWithin+(b.openWithin||0),newlyOpened:a.newlyOpened+(b.newlyOpened||0),reminderNotice:a.reminderNotice+(b.reminderNotice||0),excessCount:a.excessCount+(b.excessCount||0),minorTerminal:a.minorTerminal+(b.minorTerminal||0)}),{closedWithin:0,closedExceed:0,openExceed:0,openWithin:0,newlyOpened:0,reminderNotice:0,excessCount:0,minorTerminal:0});
     const svcTotals=svcMap[service]||tot;
     const denom=(tot.closedWithin+tot.closedExceed+tot.openWithin+tot.openExceed+tot.newlyOpened)||1;
     steps.forEach(stp=>{
@@ -91,9 +121,12 @@ function __kpi_mergeSheetTotalsWithTms__(fromSheet,fromTms){
       const openExceed=Math.round((svcTotals.openExceed||0)*weight);
       const openWithin=Math.round((svcTotals.openWithin||0)*weight);
       const newlyOpened=Math.round((svcTotals.newlyOpened||0)*weight);
+      const reminderNotice=Math.round((svcTotals.reminderNotice||0)*weight);
+      const excessCount=Math.round((svcTotals.excessCount||0)*weight);
+      const minorTerminal=Math.round((svcTotals.minorTerminal||0)*weight);
       const total=closedWithin+closedExceed+openExceed+openWithin+newlyOpened;
       const pctClosed=total>0?((closedWithin+closedExceed)/total)*100:0;
-      out.push({ service, step:stp.step, closedWithin, closedExceed, openExceed, openWithin, newlyOpened, total, reminderNotice:0, excessCount:closedExceed+openExceed, minorTerminal:0, pctClosed:+pctClosed.toFixed(2) });
+      out.push({ service, step:stp.step, closedWithin, closedExceed, openExceed, openWithin, newlyOpened, total, reminderNotice, excessCount, minorTerminal, pctClosed:+pctClosed.toFixed(2) });
     });
   });
   return out;

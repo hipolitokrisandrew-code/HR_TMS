@@ -510,6 +510,7 @@
   let __redrawTimer = null;
   let __debounce = null;
   let __bootedVisible = false;
+  let __autoTimer = null;
 
   async function fetchKPIReport(){
     const loading = document.getElementById('kpiLoading');
@@ -540,6 +541,11 @@
 
   function applyFilters(){ clearTimeout(__debounce); __debounce = setTimeout(fetchKPIReport, 120); }
   async function refreshKpiData(){ await fetchKPIReport(); }
+
+  function startAutoRefresh(){
+    clearInterval(__autoTimer);
+    __autoTimer = setInterval(()=>{ if (tabIsVisible()) fetchKPIReport(); }, 60000);
+  }
 
   /* ---------- Presets ---------- */
   function applyPreset(key){
@@ -751,6 +757,7 @@
       await ChartLoader.ready();
       await bootSavedRange();   // loads last or default (This Month)
       await fetchKPIReport();
+      startAutoRefresh();
 
       window.addEventListener('resize', () => {
         clearTimeout(__redrawTimer);
@@ -764,7 +771,11 @@
 
   setTimeout(bootWhenVisible, 0);
   window.addEventListener('tab-activated', (e) => {
-    if (e && e.detail === 'tab-kpis') bootWhenVisible();
+    if (e && e.detail === 'tab-kpis') {
+      bootWhenVisible();
+      startAutoRefresh();
+      fetchKPIReport();
+    }
   });
 
   /* Fallback 'call' helper if not provided globally */
