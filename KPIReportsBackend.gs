@@ -37,6 +37,15 @@ function __kpi_fromTmsRowsToBuckets__(rows){
   });
   return Object.values(bucket);
 }
+function __kpi_fmtTrendLabel__(ymd){
+  if(!ymd) return '—';
+  const parts=String(ymd).split('-').map(Number);
+  if(parts.length>=3 && parts.every(n=>!isNaN(n))){
+    const [y,m,d]=parts; const dt=new Date(Date.UTC(y,(m||1)-1,d||1,12));
+    return dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+  }
+  return String(ymd);
+}
 function __kpi_fromTmsByServiceStep__(filters){ return __kpi_fromTmsRowsToBuckets__(__kpi_readTmsRowsForCurrentCompany__(filters)); }
 function __kpi_fromTmsByServiceStep_forSS__(ss,filters){ return __kpi_fromTmsRowsToBuckets__(__kpi_readTmsRowsForSS__(ss,filters)); }
 function __kpi_vals__(sheet){ if(!sheet) return []; return sheet.getDataRange().getDisplayValues(); }
@@ -93,53 +102,147 @@ function __kpi_buildServiceStep__(ss,filters){ const fromSheet=__kpi_readSlaBloc
 function __kpi_buildServiceStepForSS__(ss,filters){ const fromSheet=__kpi_readSlaBlockFromSummarySheets__(ss); const fromTms=__kpi_fromTmsByServiceStep_forSS__(ss,filters); return (!fromSheet||!fromSheet.length)?__kpi_enrichFromTmsOnly__(fromTms):__kpi_mergeSheetTotalsWithTms__(fromSheet,fromTms); }
 
 // Public APIs (renamed)
-function getKPIReportDataV2Backend(filters){
-  requireAuth();
-  const ss=getActiveSpreadsheet_();
-  const rows=__kpi_buildServiceStep__(ss, filters||{});
-  const svcAgg={};
-  rows.forEach(r=>{
-    const s=r.service;
-    if(!svcAgg[s]) svcAgg[s]={service:s,closedWithin:0,closedExceed:0,openExceed:0,openWithin:0,newlyOpened:0,total:0,reminderNotice:0,excessCount:0,minorTerminal:0};
-    const a=svcAgg[s];
-    a.closedWithin+=r.closedWithin||0; a.closedExceed+=r.closedExceed||0; a.openExceed+=r.openExceed||0; a.openWithin+=r.openWithin||0; a.newlyOpened+=r.newlyOpened||0; a.total+=r.total||0; a.reminderNotice+=r.reminderNotice||0; a.excessCount+=r.excessCount||0; a.minorTerminal+=r.minorTerminal||0;
-  });
-  const services=Object.values(svcAgg).map(a=>{ const closed=(a.closedWithin||0)+(a.closedExceed||0); const pctClosed=a.total>0?(closed/a.total)*100:0; return Object.assign(a,{pctClosed:+pctClosed.toFixed(2)}); }).sort((x,y)=>y.total-x.total);
-  const overall=services.reduce((o,a)=>{ o.closedWithin+=a.closedWithin||0; o.closedExceed+=a.closedExceed||0; o.openExceed+=a.openExceed||0; o.openWithin+=a.openWithin||0; o.newlyOpened+=a.newlyOpened||0; o.total+=a.total||0; o.reminderNotice+=a.reminderNotice||0; o.excessCount+=a.excessCount||0; o.minorTerminal+=a.minorTerminal||0; return o; },{closedWithin:0,closedExceed:0,openExceed:0,openWithin:0,newlyOpened:0,total:0,reminderNotice:0,excessCount:0,minorTerminal:0});
-  const closedOverall=(overall.closedWithin||0)+(overall.closedExceed||0);
-  overall.pctClosed=overall.total>0?+((closedOverall/overall.total)*100).toFixed(2):0;
+  function getKPIReportDataV2Backend(filters){
+    requireAuth();
+    const ss = getActiveSpreadsheet_();
+    const rows = __kpi_buildServiceStep__(ss, filters || {});
 
-  const targetPct=95, trend=[], tatBins=[];
-  try{
-    const f=filters||{}; const rowsAll=__kpi_readTmsRowsForCurrentCompany__(f);
-    if(rowsAll&&rowsAll.length){
-      const startMs=f&&f.startDate?new Date(f.startDate).getTime():null;
-      const endMs=f&&f.endDate?(new Date(f.endDate).getTime()+24*60*60*1000-1):null;
-      const nowMs=Date.now(); const SLA_MIN=60*24*2;
-      const dayAgg={}; function addDay(key,fld){ if(!dayAgg[key]) dayAgg[key]={dateLabel:key,closedWithin:0,closedExceed:0,openWithin:0,openExceed:0,total:0}; dayAgg[key][fld]+=1; dayAgg[key].total+=1; }
-      function ymd(d){ const dt=(d instanceof Date)?d:new Date(d); if(isNaN(dt))return null; const y=dt.getFullYear(); const m=(dt.getMonth()+1).toString().padStart(2,'0'); const da=dt.getDate().toString().padStart(2,'0'); return y+'-'+m+'-'+da; }
-      const bins=[{label:'≤ 1d',min:0,max:60*24},{label:'1–2d',min:60*24,max:60*48},{label:'2–3d',min:60*48,max:60*72},{label:'3–5d',min:60*72,max:60*120},{label:'5–7d',min:60*120,max:60*168},{label:'> 7d',min:60*168,max:Infinity}], binCounts=bins.map(b=>({label:b.label,count:0}));
-      rowsAll.forEach(r=>{
-        const start=r['Start'], end=r['End']; const sMs=start?new Date(start).getTime():null; const eMs=end?new Date(end).getTime():null;
-        let tat=0; const tatCell=r['Total TAT (mins)'], curTatCell=r['TAT (mins)'];
-        if(end) tat=parseFloat(String(tatCell||'0').replace(/,/g,''))||0;
-        else if(curTatCell!=null&&curTatCell!=='') tat=parseFloat(String(curTatCell).replace(/,/g,''))||0;
-        else if(sMs) tat=Math.max(0, Math.round((nowMs-sMs)/60000));
-        if(!isNaN(tat)){ for(let i=0;i<bins.length;i++){ if(tat>=bins[i].min && tat<bins[i].max){ binCounts[i].count+=1; break; } } }
-        const within=tat<=SLA_MIN;
-        if(eMs){ if((startMs==null||eMs>=startMs)&&(endMs==null||eMs<=endMs)){ addDay(ymd(eMs), within?'closedWithin':'closedExceed'); } }
-        else if(sMs){ if((startMs==null||sMs>=startMs)&&(endMs==null||sMs<=endMs)){ addDay(ymd(sMs), within?'openWithin':'openExceed'); } }
-      });
-      Object.keys(dayAgg).sort().forEach(k=>{
-        const d=dayAgg[k]; const closed=(d.closedWithin||0)+(d.closedExceed||0); const pctClosed=d.total>0?(closed/d.total)*100:0;
-        trend.push({dateLabel:d.dateLabel, closedWithin:d.closedWithin, closedExceed:d.closedExceed, openWithin:d.openWithin, openExceed:d.openExceed, total:d.total, pctClosed:+pctClosed.toFixed(2)});
-      });
-      bins.forEach((b,i)=>tatBins.push({label:b.label,count:binCounts[i].count}));
+    const svcAgg = {};
+    rows.forEach(r => {
+      const s = r.service;
+      if (!svcAgg[s]) svcAgg[s] = { service: s, closedWithin: 0, closedExceed: 0, openExceed: 0, openWithin: 0, newlyOpened: 0, total: 0, reminderNotice: 0, excessCount: 0, minorTerminal: 0 };
+      const a = svcAgg[s];
+      a.closedWithin += r.closedWithin || 0;
+      a.closedExceed += r.closedExceed || 0;
+      a.openExceed += r.openExceed || 0;
+      a.openWithin += r.openWithin || 0;
+      a.newlyOpened += r.newlyOpened || 0;
+      a.total += r.total || 0;
+      a.reminderNotice += r.reminderNotice || 0;
+      a.excessCount += r.excessCount || 0;
+      a.minorTerminal += r.minorTerminal || 0;
+    });
+
+    const services = Object.values(svcAgg)
+      .map(a => {
+        const closed = (a.closedWithin || 0) + (a.closedExceed || 0);
+        const pctClosed = a.total > 0 ? (closed / a.total) * 100 : 0;
+        return Object.assign(a, { pctClosed: +pctClosed.toFixed(2) });
+      })
+      .sort((x, y) => y.total - x.total);
+
+    const overall = services.reduce((o, a) => {
+      o.closedWithin += a.closedWithin || 0;
+      o.closedExceed += a.closedExceed || 0;
+      o.openExceed += a.openExceed || 0;
+      o.openWithin += a.openWithin || 0;
+      o.newlyOpened += a.newlyOpened || 0;
+      o.total += a.total || 0;
+      o.reminderNotice += a.reminderNotice || 0;
+      o.excessCount += a.excessCount || 0;
+      o.minorTerminal += a.minorTerminal || 0;
+      return o;
+    }, { closedWithin: 0, closedExceed: 0, openExceed: 0, openWithin: 0, newlyOpened: 0, total: 0, reminderNotice: 0, excessCount: 0, minorTerminal: 0 });
+
+    const closedOverall = (overall.closedWithin || 0) + (overall.closedExceed || 0);
+    overall.pctClosed = overall.total > 0 ? +((closedOverall / overall.total) * 100).toFixed(2) : 0;
+
+    const targetPct = 95;
+    const trend = [];
+    const tatBins = [];
+
+    try {
+      const f = filters || {};
+      const rowsAll = __kpi_readTmsRowsForCurrentCompany__(f);
+      if (rowsAll && rowsAll.length) {
+        const startMs = f && f.startDate ? new Date(f.startDate).getTime() : null;
+        const endMs = f && f.endDate ? (new Date(f.endDate).getTime() + 24 * 60 * 60 * 1000 - 1) : null;
+        const nowMs = Date.now();
+        const SLA_MIN = 60 * 24 * 2;
+        const dayAgg = {};
+
+        function addDay(key, fld) {
+          if (!dayAgg[key]) dayAgg[key] = { dateLabel: key, closedWithin: 0, closedExceed: 0, openWithin: 0, openExceed: 0, total: 0 };
+          dayAgg[key][fld] += 1;
+          dayAgg[key].total += 1;
+        }
+
+        function ymd(d) {
+          const dt = (d instanceof Date) ? d : new Date(d);
+          if (isNaN(dt)) return null;
+          const y = dt.getFullYear();
+          const m = (dt.getMonth() + 1).toString().padStart(2, '0');
+          const da = dt.getDate().toString().padStart(2, '0');
+          return y + '-' + m + '-' + da;
+        }
+
+        const bins = [
+          { label: '≤ 1d', min: 0, max: 60 * 24 },
+          { label: '1–2d', min: 60 * 24, max: 60 * 48 },
+          { label: '2–3d', min: 60 * 48, max: 60 * 72 },
+          { label: '3–5d', min: 60 * 72, max: 60 * 120 },
+          { label: '5–7d', min: 60 * 120, max: 60 * 168 },
+          { label: '> 7d', min: 60 * 168, max: Infinity }
+        ];
+        const binCounts = bins.map(b => ({ label: b.label, count: 0 }));
+
+        rowsAll.forEach(r => {
+          const start = r['Start'];
+          const end = r['End'];
+          const sMs = start ? new Date(start).getTime() : null;
+          const eMs = end ? new Date(end).getTime() : null;
+
+          let tat = 0;
+          const tatCell = r['Total TAT (mins)'];
+          const curTatCell = r['TAT (mins)'];
+          if (end) tat = parseFloat(String(tatCell || '0').replace(/,/g, '')) || 0;
+          else if (curTatCell != null && curTatCell !== '') tat = parseFloat(String(curTatCell).replace(/,/g, '')) || 0;
+          else if (sMs) tat = Math.max(0, Math.round((nowMs - sMs) / 60000));
+
+          if (!isNaN(tat)) {
+            for (let i = 0; i < bins.length; i++) {
+              if (tat >= bins[i].min && tat < bins[i].max) {
+                binCounts[i].count += 1;
+                break;
+              }
+            }
+          }
+
+          const within = tat <= SLA_MIN;
+          if (eMs) {
+            if ((startMs == null || eMs >= startMs) && (endMs == null || eMs <= endMs)) addDay(ymd(eMs), within ? 'closedWithin' : 'closedExceed');
+          } else if (sMs) {
+            if ((startMs == null || sMs >= startMs) && (endMs == null || sMs <= endMs)) addDay(ymd(sMs), within ? 'openWithin' : 'openExceed');
+          }
+        });
+
+        Object.keys(dayAgg).sort().forEach(k => {
+          const d = dayAgg[k];
+          const closed = (d.closedWithin || 0) + (d.closedExceed || 0);
+          const pctClosed = d.total > 0 ? (closed / d.total) * 100 : 0;
+          trend.push({
+            date: d.dateLabel,
+            dateISO: d.dateLabel,
+            dateLabel: d.dateLabel,
+            displayLabel: __kpi_fmtTrendLabel__(d.dateLabel),
+            closedWithin: d.closedWithin,
+            closedExceed: d.closedExceed,
+            openWithin: d.openWithin,
+            openExceed: d.openExceed,
+            total: d.total,
+            pctClosed: +pctClosed.toFixed(2),
+            targetPct
+          });
+        });
+
+        bins.forEach((b, i) => tatBins.push({ label: b.label, count: binCounts[i].count }));
+      }
+    } catch (err) {
+      Logger.log('KPI trend/TAT calc error: ' + err);
     }
-  }catch(err){ Logger.log('KPI trend/TAT calc error: '+err); }
 
-  return { targetPct, overall, services, rows, trend, tatBins };
-}
+    return { targetPct, overall, services, rows, trend, tatBins };
+  }
 
 function getKPIReportDataV3Backend(filters){
   requireAuth();
@@ -186,7 +289,7 @@ function getKPIReportDataV3Backend(filters){
         else if(sMs){ if((startMs==null||sMs>=startMs)&&(endMs==null||sMs<=endMs)){ addDay(ymd(sMs), within?'openWithin':'openExceed'); } }
       });
       Object.keys(dayAgg).sort().forEach(k=>{ const d=dayAgg[k]; const closed=(d.closedWithin||0)+(d.closedExceed||0); const pctClosed=d.total>0?(closed/d.total)*100:0;
-        trend.push({dateLabel:d.dateLabel, closedWithin:d.closedWithin, closedExceed:d.closedExceed, openWithin:d.openWithin, openExceed:d.openExceed, total:d.total, pctClosed:+pctClosed.toFixed(2)});
+        trend.push({date:d.dateLabel, dateISO:d.dateLabel, dateLabel:d.dateLabel, displayLabel:__kpi_fmtTrendLabel__(d.dateLabel), closedWithin:d.closedWithin, closedExceed:d.closedExceed, openWithin:d.openWithin, openExceed:d.openExceed, total:d.total, pctClosed:+pctClosed.toFixed(2), targetPct});
       });
       bins.forEach((b,i)=>tatBins.push({label:b.label,count:binCounts[i].count}));
     }
