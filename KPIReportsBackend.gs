@@ -37,6 +37,15 @@ function __kpi_fromTmsRowsToBuckets__(rows){
   });
   return Object.values(bucket);
 }
+function __kpi_fmtTrendLabel__(ymd){
+  if(!ymd) return '—';
+  const parts=String(ymd).split('-').map(Number);
+  if(parts.length>=3 && parts.every(n=>!isNaN(n))){
+    const [y,m,d]=parts; const dt=new Date(Date.UTC(y,(m||1)-1,d||1,12));
+    return dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+  }
+  return String(ymd);
+}
 function __kpi_fromTmsByServiceStep__(filters){ return __kpi_fromTmsRowsToBuckets__(__kpi_readTmsRowsForCurrentCompany__(filters)); }
 function __kpi_fromTmsByServiceStep_forSS__(ss,filters){ return __kpi_fromTmsRowsToBuckets__(__kpi_readTmsRowsForSS__(ss,filters)); }
 function __kpi_vals__(sheet){ if(!sheet) return []; return sheet.getDataRange().getDisplayValues(); }
@@ -132,7 +141,7 @@ function getKPIReportDataV2Backend(filters){
       });
       Object.keys(dayAgg).sort().forEach(k=>{
         const d=dayAgg[k]; const closed=(d.closedWithin||0)+(d.closedExceed||0); const pctClosed=d.total>0?(closed/d.total)*100:0;
-        trend.push({dateLabel:d.dateLabel, closedWithin:d.closedWithin, closedExceed:d.closedExceed, openWithin:d.openWithin, openExceed:d.openExceed, total:d.total, pctClosed:+pctClosed.toFixed(2)});
+        trend.push({date:d.dateLabel, dateLabel:d.dateLabel, displayLabel:__kpi_fmtTrendLabel__(d.dateLabel), closedWithin:d.closedWithin, closedExceed:d.closedExceed, openWithin:d.openWithin, openExceed:d.openExceed, total:d.total, pctClosed:+pctClosed.toFixed(2)});
       });
       bins.forEach((b,i)=>tatBins.push({label:b.label,count:binCounts[i].count}));
     }
@@ -186,7 +195,7 @@ function getKPIReportDataV3Backend(filters){
         else if(sMs){ if((startMs==null||sMs>=startMs)&&(endMs==null||sMs<=endMs)){ addDay(ymd(sMs), within?'openWithin':'openExceed'); } }
       });
       Object.keys(dayAgg).sort().forEach(k=>{ const d=dayAgg[k]; const closed=(d.closedWithin||0)+(d.closedExceed||0); const pctClosed=d.total>0?(closed/d.total)*100:0;
-        trend.push({dateLabel:d.dateLabel, closedWithin:d.closedWithin, closedExceed:d.closedExceed, openWithin:d.openWithin, openExceed:d.openExceed, total:d.total, pctClosed:+pctClosed.toFixed(2)});
+        trend.push({date:d.dateLabel, dateLabel:d.dateLabel, displayLabel:__kpi_fmtTrendLabel__(d.dateLabel), closedWithin:d.closedWithin, closedExceed:d.closedExceed, openWithin:d.openWithin, openExceed:d.openExceed, total:d.total, pctClosed:+pctClosed.toFixed(2)});
       });
       bins.forEach((b,i)=>tatBins.push({label:b.label,count:binCounts[i].count}));
     }
