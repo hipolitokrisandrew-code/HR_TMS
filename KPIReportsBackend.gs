@@ -141,9 +141,6 @@ function getKPIReportDataV2Backend(filters){
       });
       Object.keys(dayAgg).sort().forEach(k=>{
         const d=dayAgg[k]; const closed=(d.closedWithin||0)+(d.closedExceed||0); const pctClosed=d.total>0?(closed/d.total)*100:0;
-        trend.push({date:d.dateLabel, dateISO:d.dateLabel, dateLabel:d.dateLabel, displayLabel:__kpi_fmtTrendLabel__(d.dateLabel), closedWithin:d.closedWithin, closedExceed:d.closedExceed, openWithin:d.openWithin, openExceed:d.openExceed, total:d.total, pctClosed:+pctClosed.toFixed(2), targetPct});
-      Object.keys(dayAgg).sort().forEach(k=>{
-        const d=dayAgg[k]; const closed=(d.closedWithin||0)+(d.closedExceed||0); const pctClosed=d.total>0?(closed/d.total)*100:0;
         trend.push({date:d.dateLabel, dateLabel:d.dateLabel, displayLabel:__kpi_fmtTrendLabel__(d.dateLabel), closedWithin:d.closedWithin, closedExceed:d.closedExceed, openWithin:d.openWithin, openExceed:d.openExceed, total:d.total, pctClosed:+pctClosed.toFixed(2)});
       });
       bins.forEach((b,i)=>tatBins.push({label:b.label,count:binCounts[i].count}));
@@ -197,8 +194,6 @@ function getKPIReportDataV3Backend(filters){
         if(eMs){ if((startMs==null||eMs>=startMs)&&(endMs==null||eMs<=endMs)){ addDay(ymd(eMs), within?'closedWithin':'closedExceed'); } }
         else if(sMs){ if((startMs==null||sMs>=startMs)&&(endMs==null||sMs<=endMs)){ addDay(ymd(sMs), within?'openWithin':'openExceed'); } }
       });
-      Object.keys(dayAgg).sort().forEach(k=>{ const d=dayAgg[k]; const closed=(d.closedWithin||0)+(d.closedExceed||0); const pctClosed=d.total>0?(closed/d.total)*100:0;
-        trend.push({date:d.dateLabel, dateISO:d.dateLabel, dateLabel:d.dateLabel, displayLabel:__kpi_fmtTrendLabel__(d.dateLabel), closedWithin:d.closedWithin, closedExceed:d.closedExceed, openWithin:d.openWithin, openExceed:d.openExceed, total:d.total, pctClosed:+pctClosed.toFixed(2), targetPct});
       Object.keys(dayAgg).sort().forEach(k=>{ const d=dayAgg[k]; const closed=(d.closedWithin||0)+(d.closedExceed||0); const pctClosed=d.total>0?(closed/d.total)*100:0;
         trend.push({date:d.dateLabel, dateLabel:d.dateLabel, displayLabel:__kpi_fmtTrendLabel__(d.dateLabel), closedWithin:d.closedWithin, closedExceed:d.closedExceed, openWithin:d.openWithin, openExceed:d.openExceed, total:d.total, pctClosed:+pctClosed.toFixed(2)});
       });
