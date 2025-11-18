@@ -328,6 +328,14 @@
     return String(raw);
   }
 
+  function toDateObj(raw){
+    const parts=String(raw||'').split('-').map(Number);
+    if(parts.length>=3 && parts.every(n=>!isNaN(n))){
+      const [y,m,d]=parts; return new Date(Date.UTC(y,(m||1)-1,d||1,12));
+    }
+    return null;
+  }
+
   /* ---------- Trend drawing (unchanged) ---------- */
   function drawSlaTrend(trendArray, targetPct){
     const host = document.getElementById('kpiTrend');
@@ -337,6 +345,33 @@
       return;
     }
     const data = new google.visualization.DataTable();
+    data.addColumn('date', 'Date');
+    data.addColumn('number', '%Closed');
+    data.addColumn('number', 'Target');
+    data.addColumn({type:'string', role:'tooltip', p:{html:true}});
+    const rows = trendArray
+      .map(t => {
+        const dateRaw = t.date || t.dateLabel || t.dateISO;
+        const dateObj = toDateObj(dateRaw);
+        if(!dateObj) return null;
+        const dateLabel = t.displayLabel || formatTrendLabel(dateRaw);
+        const closed = Number(t.pctClosed || 0);
+        const target = Number((t.targetPct!=null?t.targetPct:targetPct) || 95);
+        const closedWithin = Number(t.closedWithin || 0);
+        const closedExceed = Number(t.closedExceed || 0);
+        const total = Number(t.total || 0);
+        const tip = `
+          <div>
+            <div class="kpi-tip-title">${dateLabel}</div>
+            <div class="kpi-tip-row"><span>% Closed</span><b>${closed.toFixed(2)}%</b></div>
+            <div class="kpi-tip-row"><span>Target SLA</span><b>${target.toFixed(2)}%</b></div>
+            <div class="kpi-tip-row"><span>Closed (within / exceed)</span><b>${fmt(closedWithin)} / ${fmt(closedExceed)}</b></div>
+            <div class="kpi-tip-row"><span>Total</span><b>${fmt(total)}</b></div>
+          </div>`;
+        return [dateObj, closed, target, tip];
+      })
+      .filter(Boolean);
+    data.addRows(rows);
     data.addColumn('string', 'Date');
     data.addColumn('number', '%Closed');
     data.addColumn('number', 'Target');
@@ -360,12 +395,14 @@
       chartArea: { left: 48, right: 16, top: 16, bottom: 36, width: '100%', height: '80%' },
       legend: { position: 'none' },
       vAxis: { minValue:0, maxValue:100, viewWindow:{min:0,max:100}, gridlines:{ color:'#1f2a44', count:6 }, textStyle:{ color:'#cbd5e1' }, format: '#\'%\'' },
+      hAxis: { textStyle:{ color:'#cbd5e1' }, slantedText:true, slantedTextAngle:30, gridlines:{ color:'#0f152b' }, format:'MMM d, yyyy' },
       hAxis: { textStyle:{ color:'#cbd5e1' }, slantedText:true, slantedTextAngle:30, gridlines:{ color:'#0f152b' } },
       seriesType: 'area',
       series: {
         0: { type:'area', color:'#22c55e', areaOpacity:0.15, lineWidth:3, pointSize:5 },
         1: { type:'line', color:'#f59e0b', lineWidth:2, lineDashStyle:[6,6], pointSize:0 }
       },
+      focusTarget:'datum',
       focusTarget:'category',
       tooltip: { isHtml:true, trigger:'focus', textStyle:{ color:'#e6edf7' } }
     };
