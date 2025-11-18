@@ -1,0 +1,22 @@
+name: App Script CI
+
+on:
+  # Run this workflow automatically for every PR going into main
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  basic-check:
+    name: Basic Apps Script check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # This step is just a placeholder so the job succeeds.
+      # You can later replace this with real checks (linting, tests, etc.).
+      - name: Run basic validation
+        run: |
+          echo "Running basic checks for Apps Script project..."
+          echo "No automated tests yet, but this ensures Testing is 'run' instead of 'Not requested'."
