@@ -1,0 +1,411 @@
+<!-- EmployeeConcern.html — Employee Concerns (TMS-based)
+     - Uses TMS (same data as HR Request) via getConcernsDataActiveCompany()
+     - Limited view: 8 columns (in this exact order):
+         1) Company
+         2) Request ID
+         3) Service
+         4) Details
+         5) Remarks
+         6) Attachments
+         7) Request Date
+         8) Due Date
+     - "Show all records" view: all raw TMS columns for those rows
+       (plus synthetic Company column), similar to HR Request table.
+     - Preserves existing behaviors:
+         • Company selector buttons (EC_setCompany → setCompany)
+         • Show-all toggle
+         • Reload button
+         • Status text (“Loading…”, “Ready”)
+         • Responsive, scrollable layout with sticky header
+ -->
+
+<style>
+  /* --- Scoped to Employee Concerns tab only --- */
+  .ec-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0; /* prevent flex overflow */
+  }
+
+  #ec-controls {
+    display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+  }
+  #ec-toggle-wrap {
+    display:flex; align-items:center; gap:8px; color:var(--muted);
+    font-size:.92rem; user-select:none;
+  }
+  #ec-toggle-all { transform: translateY(1px); }
+
+  /* Viewport ensures table never leaks outside; both axes scroll if needed */
+  #ec-viewport {
+    width: 100%;
+    max-width: 100%;
+    overflow: auto;              /* both horizontal & vertical */
+    max-height: 65vh;            /* keep table within panel; adjust if desired */
+    border: 1px solid rgba(148,163,184,.20);
+    border-radius: 10px;
+    background: rgba(255,255,255,.01);
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Table aesthetics (scoped) */
+  #ec-table {
+    border-collapse: collapse;
+    /* Force horizontal scroll when columns are many/long */
+    min-width: 1100px;           /* ensures header cells don't squish */
+    width: max(1100px, 100%);
+    table-layout: auto;
+  }
+  #ec-table thead th {
+    position: sticky; top: 0; z-index: 1;  /* header stays visible while scrolling */
+    border: 1px solid rgba(148,163,184,.35);
+    background: rgba(148,163,184,.10);
+    backdrop-filter: blur(2px);
+    font-weight: 600;
+    text-align: left;
+    padding: 8px 10px;
+    white-space: nowrap;         /* use horizontal scroll for long headers */
+  }
+  #ec-table tbody td {
+    border: 1px solid rgba(148,163,184,.20);
+    padding: 8px 10px;
+    vertical-align: top;
+    /* Make body text wrap so extremely long details don't explode cell width */
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-wrap: break-word;
+  }
+  #ec-table tbody tr:nth-child(even) td {
+    background: rgba(148,163,184,.05);
+  }
+</style>
+
+<div class="panel ec-wrap" style="margin-bottom:10px">
+  <div style="display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
+    <div>
+      <h3 style="margin:0">Employee Concerns</h3>
+      <div id="ec-active-co" style="color:var(--muted);font-size:.9rem;margin-top:2px"></div>
+    </div>
+
+    <div id="ec-controls">
+      <!-- Company selector (uses existing backend setCompany) -->
+      <div class="btnbar" role="group" aria-label="Select company">
+        <button class="btn ghost" data-co="Onward" onclick="EC_setCompany('Onward')" title="Switch to Onward">Onward</button>
+        <button class="btn ghost" data-co="ITAM"   onclick="EC_setCompany('ITAM')"   title="Switch to ITAM">ITAM</button>
+        <button class="btn ghost" data-co="IREAL"  onclick="EC_setCompany('IREAL')"  title="Switch to IREAL">IREAL</button>
+        <button class="btn ghost" data-co="LATTE"  onclick="EC_setCompany('LATTE')"  title="Switch to LATTE">LATTE</button>
+      </div>
+
+      <!-- Show all records toggle -->
+      <label id="ec-toggle-wrap" title="Toggle between 8-column view and full TMS view">
+        <input type="checkbox" id="ec-toggle-all" />
+        <span>Show all records</span>
+      </label>
+
+      <!-- Reload table data only (no full page refresh) -->
+      <button class="btn" id="ec-reload" onclick="EC_reload()" title="Reload concerns">Reload</button>
+    </div>
+  </div>
+
+  <div id="ec-status" style="color:var(--muted);font-size:.9rem">Loading…</div>
+
+  <!-- Scroll container prevents overflow; table stays inside -->
+  <div id="ec-viewport" aria-live="polite">
+    <table class="table" id="ec-table" aria-label="Employee concerns">
+      <thead id="ec-thead"></thead>
+      <tbody id="ec-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  /* -------------------- Client-side controller -------------------- */
+
+  // Last payload from backend: { company, headers, rows }
+  let EC_lastPayload = null;
+  // Toggle state: false = 8-column view, true = full TMS view
+  let EC_showAll = false;
+
+  // Limited-view column plan (exact order from spec)
+  const EC_LIMITED_COLUMNS = [
+    { key: 'Company',      label: 'Company' },
+    { key: 'Request ID',   label: 'Request ID' },
+    { key: 'Service',      label: 'Service' },
+    { key: 'Details',      label: 'Details' },
+    { key: 'Remarks',      label: 'Remarks' },
+    { key: 'Attachments',  label: 'Attachments' },
+    { key: 'Request Date', label: 'Request Date' },
+    { key: 'Due Date',     label: 'Due Date' }
+  ];
+
+  (function EC_boot() {
+    // Bind toggle behavior
+    const tog = document.getElementById('ec-toggle-all');
+    if (tog) {
+      tog.checked = false;
+      tog.addEventListener('change', () => {
+        EC_showAll = !!tog.checked;
+        if (EC_lastPayload) EC_renderMode(EC_lastPayload);
+      });
+      // Disable until first load completes to avoid confusing UX
+      tog.disabled = true;
+    }
+
+    EC_markBusy(true, 'Loading…');
+    EC_load();
+  })();
+
+  function EC_markBusy(busy, msg) {
+    const st  = document.getElementById('ec-status');
+    const rl  = document.getElementById('ec-reload');
+    const tog = document.getElementById('ec-toggle-all');
+
+    if (rl)  rl.disabled  = !!busy;
+    if (tog) tog.disabled = !!busy && !EC_lastPayload;
+
+    if (st) st.textContent = busy ? (msg || 'Loading…') : 'Ready';
+  }
+
+  function EC_setCompany(companyName) {
+    EC_markBusy(true, 'Switching company…');
+    try {
+      google.script.run
+        .withSuccessHandler(() => EC_load())
+        .withFailureHandler(err => {
+          EC_markBusy(false, 'Switch failed');
+          const msg = err && err.message ? err.message : 'Failed to switch company.';
+          if (typeof showErr === 'function') {
+            showErr(msg);
+          } else {
+            console.error(msg);
+          }
+        })
+        .setCompany(companyName);
+    } catch (e) {
+      EC_markBusy(false);
+      const msg = 'Unable to call setCompany: ' + e.message;
+      if (typeof showErr === 'function') {
+        showErr(msg);
+      } else {
+        console.error(msg);
+      }
+    }
+  }
+
+  function EC_reload() {
+    EC_markBusy(true, 'Refreshing…');
+    EC_load();
+  }
+
+  function EC_load() {
+    try {
+      google.script.run
+        .withSuccessHandler(EC_render)
+        .withFailureHandler(err => {
+          EC_markBusy(false);
+          const msg = err && err.message ? err.message : 'Failed to load Employee Concerns.';
+          if (typeof showErr === 'function') {
+            showErr(msg);
+          } else {
+            console.error(msg);
+          }
+        })
+        // Wrapper in backend delegates to getConcernsDataActiveCompanyBackend
+        .getConcernsDataActiveCompany();
+    } catch (e) {
+      EC_markBusy(false);
+      const msg = 'Load error: ' + e.message;
+      if (typeof showErr === 'function') {
+        showErr(msg);
+      } else {
+        console.error(msg);
+      }
+    }
+  }
+
+  /* -------------------- Rendering helpers -------------------- */
+
+  function EC_escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    }[c] || c));
+  }
+
+  /**
+   * Convert newline-separated attachments into clickable links.
+   * Mirrors the behavior in HRRequest.html for consistency.
+   */
+  function EC_buildAttachmentHtml(raw) {
+    const str = String(raw || '').trim();
+    if (!str) return '';
+
+    const parts = str.split(/\s*\n+\s*/).filter(Boolean);
+    return parts.map((u, idx) => {
+      const label   = parts.length === 1 ? 'Open' : 'File ' + (idx + 1);
+      const safeUrl = EC_escapeHtml(u);
+      if (/^https?:\/\//i.test(u)) {
+        return '<a href="' + safeUrl + '" target="_blank" rel="noopener">' + label + '</a>';
+      }
+      return safeUrl;
+    }).join('<br>');
+  }
+
+  /* -------------------- Main render entry -------------------- */
+
+  function EC_render(payload) {
+    try {
+      EC_lastPayload = payload || { company: '', headers: [], rows: [] };
+
+      // Show active company label
+      const activeCoEl = document.getElementById('ec-active-co');
+      if (activeCoEl) {
+        const co = EC_lastPayload.company || '—';
+        activeCoEl.textContent = 'Active company: ' + co;
+      }
+
+      // Enable toggle now that we have at least one payload
+      const tog = document.getElementById('ec-toggle-all');
+      if (tog) tog.disabled = false;
+
+      EC_renderMode(EC_lastPayload);
+      EC_markBusy(false);
+    } catch (e) {
+      EC_markBusy(false);
+      const msg = 'Render error: ' + e.message;
+      if (typeof showErr === 'function') {
+        showErr(msg);
+      } else {
+        console.error(msg);
+      }
+    }
+  }
+
+  function EC_renderMode(payload) {
+    const thead = document.getElementById('ec-thead');
+    const tbody = document.getElementById('ec-tbody');
+    if (!thead || !tbody) return;
+
+    thead.innerHTML = '';
+    tbody.innerHTML = '';
+
+    const rows = Array.isArray(payload && payload.rows) ? payload.rows : [];
+    const headers = Array.isArray(payload && payload.headers) ? payload.headers : [];
+
+    if (!rows.length || !headers.length) {
+      // Header
+      const htr = document.createElement('tr');
+      const th = document.createElement('th');
+      th.textContent = EC_showAll ? 'No records (full view)' : 'No records';
+      th.colSpan = EC_showAll ? Math.max(headers.length, 1) : EC_LIMITED_COLUMNS.length;
+      htr.appendChild(th);
+      thead.appendChild(htr);
+
+      // Body
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = th.colSpan;
+      td.style.color = 'var(--muted)';
+      td.textContent = 'No concerns found for this company.';
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+      return;
+    }
+
+    if (EC_showAll) {
+      EC_renderFull(payload, thead, tbody);
+    } else {
+      EC_renderLimited(payload, thead, tbody);
+    }
+  }
+
+  /* ------- Limited (8-column) view ------- */
+
+  function EC_renderLimited(payload, thead, tbody) {
+    const rows = Array.isArray(payload.rows) ? payload.rows : [];
+
+    // Header row: exactly 8 columns
+    const htr = document.createElement('tr');
+    EC_LIMITED_COLUMNS.forEach(col => {
+      const th = document.createElement('th');
+      th.textContent = col.label;
+      htr.appendChild(th);
+    });
+    thead.appendChild(htr);
+
+    // Body rows
+    rows.forEach(row => {
+      const tr = document.createElement('tr');
+
+      EC_LIMITED_COLUMNS.forEach(col => {
+        const td = document.createElement('td');
+        const raw = (row && Object.prototype.hasOwnProperty.call(row, col.key))
+          ? row[col.key]
+          : '';
+
+        if (col.key === 'Attachments') {
+          const html = EC_buildAttachmentHtml(raw);
+          if (html) {
+            td.innerHTML = html;
+          } else {
+            td.textContent = '';
+          }
+        } else {
+          td.textContent = raw == null ? '' : String(raw);
+        }
+
+        tr.appendChild(td);
+      });
+
+      tbody.appendChild(tr);
+    });
+  }
+
+  /* ------- Full (Show all TMS columns) view ------- */
+
+  function EC_renderFull(payload, thead, tbody) {
+    const headers = Array.isArray(payload.headers) ? payload.headers : [];
+    const rows = Array.isArray(payload.rows) ? payload.rows : [];
+
+    // Header row: all columns from backend (Company + raw TMS headers)
+    const htr = document.createElement('tr');
+    headers.forEach(lbl => {
+      const th = document.createElement('th');
+      th.textContent = lbl;
+      htr.appendChild(th);
+    });
+    thead.appendChild(htr);
+
+    // Body rows: show raw TMS columns + synthetic Company; attachments clickable
+    rows.forEach(row => {
+      const tr = document.createElement('tr');
+
+      headers.forEach(lbl => {
+        const td = document.createElement('td');
+        const key = String(lbl || '');
+        const raw = (row && Object.prototype.hasOwnProperty.call(row, key))
+          ? row[key]
+          : '';
+
+        if (key.toLowerCase() === 'attachments') {
+          const html = EC_buildAttachmentHtml(raw);
+          if (html) {
+            td.innerHTML = html;
+          } else {
+            td.textContent = '';
+          }
+        } else {
+          td.textContent = raw == null ? '' : String(raw);
+        }
+
+        tr.appendChild(td);
+      });
+
+      tbody.appendChild(tr);
+    });
+  }
+</script>

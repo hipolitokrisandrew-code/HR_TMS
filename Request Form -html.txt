@@ -1,0 +1,256 @@
+<!-- Request Form UI -->
+
+<div class="container">
+  <div class="panel">
+    <h2 style="margin:0 0 4px">HR SERVICE REQUEST</h2>
+    <div style="color:var(--muted);font-size:.9rem">All fields marked * are required</div>
+  </div>
+
+  <div class="panel" aria-labelledby="empinfo-title">
+    <div id="empinfo-title" style="font-weight:600;margin-bottom:10px">Employee Information</div>
+    <div class="row">
+      <div>
+        <label>Display Name</label>
+        <input id="rf_displayName" type="text" readonly />
+      </div>
+      <div>
+        <label>Email</label>
+        <input id="rf_email" type="email" readonly />
+      </div>
+      <div>
+        <label>Company</label>
+        <input id="rf_company" type="text" readonly />
+      </div>
+      <div>
+        <label>Account</label>
+        <input id="rf_account" type="text" readonly />
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label>Employee ID</label>
+        <input id="rf_empId" type="text" placeholder="Optional unless required by policy" />
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" aria-labelledby="rqdet-title">
+    <div id="rqdet-title" style="font-weight:600;margin-bottom:10px">Request Details</div>
+    <div class="row">
+      <div style="flex:1;min-width:380px">
+        <label>HR Service *</label>
+        <select id="rf_service" required></select>
+      </div>
+    </div>
+    <div class="row">
+      <div style="flex:1;min-width:380px">
+        <label>Details (optional)</label>
+        <textarea id="rf_details" rows="4" placeholder="Provide context, dates, or special instructions"></textarea>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" aria-labelledby="rfup-title">
+    <div id="rfup-title" style="font-weight:600;margin-bottom:10px">Attachments</div>
+    <div id="rf_drop" class="rf-drop" tabindex="0">
+      <div class="rf-drop-inner">
+        <div style="font-weight:600">Drag & drop files here</div>
+        <div style="color:var(--muted);font-size:.9rem;margin-top:2px">or click to browse</div>
+        <input id="rf_file" type="file" multiple style="display:none" />
+      </div>
+    </div>
+    <div id="rf_files_list" style="margin-top:10px;font-size:.9rem;color:var(--muted)"></div>
+  </div>
+
+  <div class="panel" aria-labelledby="rfsub-title">
+    <div id="rfsub-title" style="font-weight:600;margin-bottom:10px">Submission Summary</div>
+    <div class="row">
+      <button id="rf_submit" class="btn" onclick="rf_submit()">Submit Request</button>
+      <button class="btn ghost" onclick="rf_reset()">Reset</button>
+      <div id="rf_spinner" style="display:none;margin-left:12px;color:var(--muted)">Submitting…</div>
+    </div>
+    <div id="rf_toast" style="margin-top:10px;display:none"></div>
+  </div>
+</div>
+
+<script>
+  let rf_files = [];
+
+  document.addEventListener('DOMContentLoaded', () => {
+    google.script.run.withSuccessHandler(rf_onSession).getSessionInfoForClient();
+    // Load HR Service * options from Master "List" via unified getServices()
+    google.script.run.withSuccessHandler(rf_onCategoryOptions).getServices();
+    rf_bindUpload();
+  });
+
+  function rf_onSession(s) {
+    if (!s) {
+      rf_showToast('Unable to load session. Please re-login.', true);
+      return;
+    }
+    document.getElementById('rf_displayName').value = s.displayName || '';
+    document.getElementById('rf_email').value       = s.email || '';
+    document.getElementById('rf_company').value     =
+      (s.companyName || s.company || '') +
+      (s.companyCode ? ' ('+s.companyCode+')' : '');
+    document.getElementById('rf_account').value     = s.accountCode || '';
+  }
+
+  // Populate HR Service * dropdown from Master "List" via backend getServices()
+  function rf_onCategoryOptions(services) {
+    const svc = document.getElementById('rf_service');
+    if (!svc) return;
+
+    // Services come from backend getServices() (Master "List" → Service column or headers)
+    const arr = Array.isArray(services) ? services : [];
+
+    // Clean: trim, remove blanks and "N/A", de-duplicate, sort
+    const cleaned = Array.from(
+      new Set(
+        arr
+          .map(v => String(v || '').trim())
+          .filter(v => v && v.toUpperCase() !== 'N/A')
+      )
+    ).sort();
+
+    svc.innerHTML =
+      '<option value=""></option>' +
+      cleaned.map(name => '<option>' + html(name) + '</option>').join('');
+  }
+
+  function rf_bindUpload() {
+    const drop = document.getElementById('rf_drop');
+    const file = document.getElementById('rf_file');
+    if (!drop || !file) return;
+
+    drop.addEventListener('click', () => file.click());
+    file.addEventListener('change', e => rf_queueFiles(e.target.files));
+
+    ['dragover','dragenter'].forEach(ev =>
+      drop.addEventListener(ev, e => {
+        e.preventDefault();
+        drop.style.background = 'rgba(255,255,255,0.04)';
+      })
+    );
+    ['dragleave','drop'].forEach(ev =>
+      drop.addEventListener(ev, e => {
+        e.preventDefault();
+        drop.style.background = 'rgba(255,255,255,0.02)';
+      })
+    );
+    drop.addEventListener('drop', e => {
+      e.preventDefault();
+      rf_queueFiles(e.dataTransfer.files || []);
+    });
+  }
+
+  function rf_queueFiles(fileList) {
+    for (const f of fileList) {
+      if (f && f.name) rf_files.push(f);
+    }
+    rf_renderFiles();
+  }
+
+  function rf_renderFiles() {
+    const el = document.getElementById('rf_files_list');
+    if (!rf_files.length) {
+      el.innerHTML = '';
+      return;
+    }
+    el.innerHTML = rf_files.map((f,i) =>
+      '<div>'+
+        html(f.name) + ' ('+Math.round((f.size || 0)/1024)+' KB) '+
+        '<button type="button" class="link" onclick="rf_removeFile('+i+')">Remove</button>'+
+      '</div>'
+    ).join('');
+  }
+
+  function rf_removeFile(idx) {
+    rf_files.splice(idx, 1);
+    rf_renderFiles();
+  }
+
+  function rf_setBusy(b) {
+    document.getElementById('rf_spinner').style.display = b ? 'inline-block' : 'none';
+    document.getElementById('rf_submit').disabled = !!b;
+  }
+
+  function rf_showToast(msg, isErr) {
+    const t = document.getElementById('rf_toast');
+    t.className   = isErr ? 'err' : 'ok';
+    t.textContent = msg;
+    t.style.display = 'block';
+  }
+
+  function rf_submit() {
+    const svc   = (document.getElementById('rf_service').value || '').trim();
+    const name  = (document.getElementById('rf_displayName').value || '').trim();
+    const email = (document.getElementById('rf_email').value || '').trim();
+    const empId = (document.getElementById('rf_empId').value || '').trim();
+
+    if (!svc) {
+      rf_showToast('Please select an HR Service.', true);
+      return;
+    }
+
+    const details = document.getElementById('rf_details').value || '';
+    rf_setBusy(true);
+
+    const readers = rf_files.map(f => new Promise((resolve, reject) => {
+      const R = new FileReader();
+      R.onload  = () => resolve({
+        name: f.name,
+        mimeType: f.type || 'application/octet-stream',
+        dataUrl: R.result
+      });
+      R.onerror = reject;
+      R.readAsDataURL(f);
+    }));
+
+    Promise.all(readers).then(payload => {
+      const dto = { name, email, empId, service: svc, details };
+
+      google.script.run
+        .withSuccessHandler(res => {
+          rf_setBusy(false);
+          if (!res || !res.ok) {
+            rf_showToast(res && res.message ? res.message : 'Submission failed.', true);
+            return;
+          }
+          rf_showToast('Request submitted. Request ID: ' + res.requestId, false);
+
+          // Let HR Request tab know a new request exists
+          try {
+            window.dispatchEvent(new CustomEvent('hr-data-changed', {
+              detail: { source:'request-form', requestId: res.requestId }
+            }));
+          } catch (_) {}
+
+          rf_reset();
+        })
+        .withFailureHandler(err => {
+          rf_setBusy(false);
+          rf_showToast(err && err.message ? err.message : 'Submission error.', true);
+        })
+        .submitForm(dto, payload);
+    }).catch(e => {
+      rf_setBusy(false);
+      rf_showToast('Failed to read attachments. Try removing them or reloading.', true);
+    });
+  }
+
+  function rf_reset() {
+    document.getElementById('rf_service').value = '';
+    document.getElementById('rf_details').value = '';
+    document.getElementById('rf_empId').value   = '';
+    rf_files = [];
+    rf_renderFiles();
+  }
+
+  function html(s) {
+    return String(s || '').replace(/[&<>"']/g, c => ({
+      '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+    }[c] || c));
+  }
+</script>
+

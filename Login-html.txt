@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <?!= include('Includes'); ?>
+  <title>Login</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    /* Lightweight visual polish without altering your global theme */
+    body {
+      min-height: 100vh;
+      background:
+        radial-gradient(60% 60% at 20% 20%, rgba(59, 130, 246, .12), transparent 50%),
+        radial-gradient(60% 60% at 80% 20%, rgba(16, 185, 129, .12), transparent 50%),
+        radial-gradient(60% 60% at 50% 80%, rgba(99, 102, 241, .12), transparent 50%),
+        var(--bg, #0b1020);
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+    .auth-wrap {
+      width: 100%;
+      max-width: 480px;
+    }
+    .auth-card {
+      backdrop-filter: blur(6px);
+      background: rgba(15, 21, 43, .9);
+      border: 1px solid var(--border, #1f2a44);
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 10px 35px rgba(0,0,0,.35);
+      transition: transform .2s ease;
+    }
+    .auth-card:focus-within { transform: translateY(-2px); }
+    .auth-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .brand-mark {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: linear-gradient(135deg, #60a5fa, #22c55e);
+      box-shadow: 0 6px 16px rgba(34, 197, 94, .25);
+      flex: 0 0 auto;
+    }
+    .auth-title {
+      margin: 0;
+      font-size: 1.25rem;
+      letter-spacing: .2px;
+    }
+    .auth-sub {
+      margin: 2px 0 0;
+      font-size: .9rem;
+      color: #9aa2b2;
+    }
+    .auth-body {
+      display: grid;
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .field {
+      display: grid; gap: 6px;
+    }
+    .field label {
+      font-size: .9rem; color: #cbd5e1;
+    }
+    .input-row {
+      position: relative;
+      display: flex; align-items: center;
+    }
+    .input-row input {
+      width: 100%;
+      padding-right: 40px; /* space for toggles/icons */
+    }
+    .icon-btn {
+      position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+      border: 1px solid transparent;
+      background: transparent;
+      color: #9aa2b2;
+      padding: 6px 8px; border-radius: 8px;
+      cursor: pointer;
+    }
+    .icon-btn:hover { background: rgba(255,255,255,.04); color: #e2e8f0; }
+    .actions {
+      display: grid; gap: 10px; margin-top: 6px;
+    }
+    .btn.block { width: 100%; }
+    .meta {
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: .85rem; color: #9aa2b2;
+    }
+    .err {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border: 1px solid #7f1d1d;
+      background: rgba(239, 68, 68, .08);
+      color: #fecaca;
+      border-radius: 10px;
+    }
+    .auth-foot {
+      text-align: center; color: #94a3b8; font-size: .85rem; margin-top: 14px;
+    }
+    /* Respect your existing .container and .panel, but not required here */
+  </style>
+</head>
+<body>
+  <div class="auth-wrap">
+    <div class="auth-card" role="dialog" aria-labelledby="loginTitle" aria-describedby="loginSubText">
+      <div class="auth-header">
+        <div class="brand-mark" aria-hidden="true"></div>
+        <div>
+          <h3 id="loginTitle" class="auth-title">Welcome back</h3>
+          <p id="loginSubText" class="auth-sub">Sign in to continue to People & Culture Web App</p>
+        </div>
+      </div>
+
+      <!-- Keep a form so Enter submits; IDs preserved for compatibility -->
+      <form class="auth-body" onsubmit="return handleSubmit(event)">
+        <div class="field">
+          <label for="email">Email</label>
+          <div class="input-row">
+            <input id="email" type="email" placeholder="you@company.com" autocomplete="email" required />
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="password">Password</label>
+          <div class="input-row">
+            <input id="password" type="password" placeholder="••••••••" autocomplete="current-password" required />
+            <!-- Show/Hide password toggle (no layout change to your inputs) -->
+            <button type="button" class="icon-btn" aria-label="Show password" onclick="togglePassword()">
+              👁️
+            </button>
+          </div>
+        </div>
+
+        <div class="actions">
+          <!-- Primary action keeps your class 'btn' and function doLogin() -->
+          <button id="loginBtn" class="btn block" type="submit">Login</button>
+          <div class="meta">
+            <span id="loginHint">Press Enter to submit</span>
+            <a href="#" onclick="forgotNotice(); return false;" style="color:#93c5fd;">Forgot password?</a>
+          </div>
+        </div>
+
+        <!-- Accessible error box (keeps your #err id) -->
+        <div id="err" class="err" role="alert" aria-live="polite" style="display:none"></div>
+      </form>
+
+      <div class="auth-foot">© <span id="year"></span> HR Service Monitoring</div>
+    </div>
+  </div>
+
+  <script>
+    // Small niceties: autofocus, year, Enter key support, loading state, a11y-friendly errors
+    (function initLoginUI(){
+      document.getElementById('year').textContent = new Date().getFullYear();
+      const email = document.getElementById('email');
+      setTimeout(()=> email && email.focus(), 50);
+
+      // Allow Cmd/Ctrl+Enter to submit
+      document.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+          const btn = document.getElementById('loginBtn');
+          if (btn && !btn.disabled) btn.click();
+        }
+      });
+    })();
+
+    function togglePassword(){
+      const input = document.getElementById('password');
+      if (!input) return;
+      const nowType = input.getAttribute('type') === 'password' ? 'text' : 'password';
+      input.setAttribute('type', nowType);
+    }
+
+    function setLoadingState(loading){
+      const btn = document.getElementById('loginBtn');
+      if (!btn) return;
+      btn.disabled = !!loading;
+      btn.textContent = loading ? 'Signing in…' : 'Login';
+    }
+
+    function showErr(msg){
+      const box = document.getElementById('err');
+      if (!box) return;
+      box.textContent = msg || 'Something went wrong.';
+      box.style.display = 'block';
+    }
+
+    function clearErr(){
+      const box = document.getElementById('err');
+      if (!box) return;
+      box.textContent = '';
+      box.style.display = 'none';
+    }
+
+    // Keep your existing function name for compatibility
+    async function doLogin(){
+      clearErr();
+      const email = document.getElementById('email').value.trim();
+      const pass  = document.getElementById('password').value;
+
+      if (!email || !pass){
+        showErr('Please enter your email and password.');
+        return;
+      }
+
+      setLoadingState(true);
+      try{
+        const res = await call('loginAndRender', email, pass);
+        if (!res || !res.ok) {
+          showErr(res?.message || 'Invalid credentials. Please try again.');
+          return;
+        }
+        // Render returned HTML to avoid full reload (kept from your original)
+        document.open(); document.write(res.html); document.close();
+      }catch(e){
+        showErr(e.message || 'Login failed. Please try again.');
+      }finally{
+        setLoadingState(false);
+      }
+    }
+
+    function handleSubmit(e){
+      if (e) e.preventDefault();
+      doLogin(); // delegates to your original logic
+      return false;
+    }
+
+    function forgotNotice(){
+      // Simple inline notice; replace with your actual flow if needed
+      showErr('If you forgot your password, please contact your administrator.');
+    }
+  </script>
+</body>
+</html>

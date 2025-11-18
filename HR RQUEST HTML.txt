@@ -1,0 +1,866 @@
+<!-- HR Requests module ONLY (no headers/tabs here) -->
+
+<style>
+  /* Column color accents:
+     - Remarks, Attachments, Request Date, Due Date
+     - Start / Pause / Resume / End
+  */
+  table.grid th:nth-child(6),
+  table.grid td:nth-child(6) {
+    color:#a855f7;
+    font-weight:600;
+    text-shadow:0 0 0.15em rgba(0,0,0,.35); /* Remarks (violet) */
+  }
+  table.grid th:nth-child(7),
+  table.grid td:nth-child(7) {
+    color:#2dd4bf;
+    font-weight:600;
+    text-shadow:0 0 0.15em rgba(0,0,0,.35); /* Attachments (teal) */
+  }
+  table.grid th:nth-child(8),
+  table.grid td:nth-child(8) {
+    color:#22c55e;
+    font-weight:600;
+    text-shadow:0 0 0.15em rgba(0,0,0,.35); /* Request Date (green) */
+  }
+  table.grid th:nth-child(9),
+  table.grid td:nth-child(9) {
+    color:var(--softred);
+    font-weight:600;
+    text-shadow:0 0 0.15em rgba(0,0,0,.35); /* Due Date (red) */
+  }
+  table.grid th:nth-child(10),
+  table.grid td:nth-child(10) {
+    color:var(--blue);
+    font-weight:600;
+    text-shadow:0 0 0.15em rgba(0,0,0,.35); /* Start (blue) */
+  }
+  table.grid th:nth-child(11),
+  table.grid td:nth-child(11) {
+    color:var(--amber);
+    font-weight:600;
+    text-shadow:0 0 0.15em rgba(0,0,0,.35); /* Pause (amber) */
+  }
+  table.grid th:nth-child(12),
+  table.grid td:nth-child(12) {
+    color:#8fd3fe;
+    font-weight:600;
+    text-shadow:0 0 0.15em rgba(0,0,0,.35); /* Resume (light blue) */
+  }
+  table.grid th:nth-child(13),
+  table.grid td:nth-child(13) {
+    color:var(--softred);
+    font-weight:600;
+    text-shadow:0 0 0.15em rgba(0,0,0,.35); /* End (soft red) */
+  }
+
+  /* Row state helpers (aligned with button colors) */
+  .state-start  { color:var(--blue) !important; }
+  .state-pause  { color:var(--amber) !important; }
+  .state-resume { color:#8fd3fe !important; }
+  .state-end    { color:var(--softred) !important; }
+
+  /* Inline notifier */
+  .hr-note {
+    margin:6px 0 0;
+    font-size:.92rem;
+    display:none;
+  }
+  .hr-note.ok  { color:#22c55e; }
+  .hr-note.err { color:#ef4444; }
+
+  /* Action bar layout */
+  .hr-actionbar {
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:12px;
+    margin-top:8px; /* subtle spacing, no border divider */
+  }
+  .hr-actionbar-left {
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    align-items:center;
+  }
+
+  /* Reload Selection – more visible, but logic unchanged */
+  .btn-reload-sel {
+    border-radius:999px;
+    padding:6px 14px;
+    font-weight:600;
+    border:1px solid #38bdf8;
+    background:#e0f2fe;
+    color:#0369a1;
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    white-space:nowrap;
+  }
+  .btn-reload-sel span.icon {
+    font-size:12px;
+    opacity:.85;
+  }
+  .btn-reload-sel:hover {
+    background:#bae6fd;
+  }
+
+  /* Keep Status column always visible (sticky on the right) */
+  table.grid {
+    border-collapse:collapse;
+  }
+  table.grid th:nth-child(16),
+  table.grid td:nth-child(16) {
+    position:sticky;
+    right:0;
+    background:#020617; /* dark panel background */
+    z-index:1;
+  }
+  table.grid thead th:nth-child(16) {
+    z-index:2;
+  }
+</style>
+
+<div class="panel">
+  <div class="row">
+    <div>
+      <label>Request ID</label>
+      <select id="reqid" onchange="onRequestIdChange()">
+        <option value="">Select Request ID</option>
+      </select>
+      <div id="reqidHint" class="hr-note" style="margin-top:4px;display:none"></div>
+    </div>
+
+    <div>
+      <label>Company</label>
+      <select id="company" onchange="onCompanyChange()">
+        <option value="Onward">Onward</option>
+        <option value="ITAM">ITAM</option>
+        <option value="IREAL">IREAL</option>
+        <option value="LATTE">LATTE</option>
+      </select>
+    </div>
+
+    <div>
+      <label>Service</label>
+      <select id="svc" onchange="onServiceChange()"></select>
+    </div>
+
+    <div>
+      <label>Process Step</label>
+      <select id="step"></select>
+    </div>
+
+    <div>
+      <label>Details</label>
+      <!-- Read-only: from Request Form / TMS -->
+      <input id="details_display" readonly />
+    </div>
+
+    <div>
+      <label>Remarks</label>
+      <!-- Editable: stored separately (Remarks column in TMS) -->
+      <input id="details" placeholder="Optional remarks..." />
+    </div>
+  </div>
+
+  <!-- 🔔 Inline notifications -->
+  <div id="hrNotice" class="hr-note" role="status" aria-live="polite"></div>
+
+  <div class="hr-actionbar">
+    <div class="hr-actionbar-left">
+      <button type="button" class="btn" id="startBtn"  onclick="act('Start')">Start</button>
+      <button type="button" class="btn" id="pauseBtn"  onclick="act('Pause')">Pause</button>
+      <button type="button" class="btn" id="resumeBtn" onclick="act('Resume')">Resume</button>
+      <button type="button" class="btn" id="endBtn"    onclick="act('End')">End</button>
+      <div class="hr-note" id="hrNote"></div>
+    </div>
+
+    <!-- 🔄 Reload Selection – resets all inputs & reloads dropdowns -->
+    <button
+      type="button"
+      id="hrSelectionReloadBtn"
+      class="btn btn-reload-sel"
+      onclick="reloadSelection()"
+      title="Reset all fields and reload the current selection"
+    >
+      ⟲ Reload Selection
+    </button>
+  </div>
+
+  <div id="loading" class="loading" style="display:none">Processing... Please wait</div>
+</div>
+
+<div class="panel">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+    <h3 style="margin:0">All Requests (Onward + ITAM + IREAL + LATTE)</h3>
+    <div>
+      <button id="hrReloadBtn" class="btn ghost" onclick="hrReload()">Reload Table</button>
+      <span id="hrReloadSpin" style="display:none;color:var(--muted);margin-left:8px;">Refreshing…</span>
+    </div>
+  </div>
+
+  <div class="tablewrap">
+    <table class="grid">
+      <thead>
+        <tr>
+          <th><input type="text" id="search-company"      class="search-bar" placeholder="Search Company"      oninput="searchColumn('Company')"></th>
+          <th><input type="text" id="search-request-id"   class="search-bar" placeholder="Search Request ID"   oninput="searchColumn('Request ID')"></th>
+          <th><input type="text" id="search-service"      class="search-bar" placeholder="Search Service"      oninput="searchColumn('Service')"></th>
+          <th><input type="text" id="search-process-step" class="search-bar" placeholder="Search Process Step" oninput="searchColumn('Process Step')"></th>
+          <th><input type="text" id="search-details"      class="search-bar" placeholder="Search Details"      oninput="searchColumn('Details')"></th>
+          <th><input type="text" id="search-remarks"      class="search-bar" placeholder="Search Remarks"      oninput="searchColumn('Remarks')"></th>
+          <th><input type="text" id="search-attachments"  class="search-bar" placeholder="Search Attachments"  oninput="searchColumn('Attachments')"></th>
+          <!-- Empty headers for remaining columns -->
+          <th></th><th></th><th></th><th></th><th></th>
+          <th></th><th></th><th></th><th></th>
+        </tr>
+
+        <tr id="cols-header">
+          <th>Company</th>
+          <th>Request ID</th>
+          <th>Service</th>
+          <th>Process Step</th>
+          <th>Details</th>
+          <th>Remarks</th>
+          <th>Attachments</th>
+          <th>Request Date</th>
+          <th>Due Date</th>
+          <th>Start</th>
+          <th>Pause</th>
+          <th>Resume</th>
+          <th>End</th>
+          <th>TAT (mins)</th>
+          <th>Total TAT (mins)</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="logs"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  let __allRowsCache   = [];
+  let __reloadTimer    = null;
+  let __inFlight       = false;
+  let __activeRequests = [];
+
+  const HEADERS = [
+    'Company', 'Request ID', 'Service', 'Process Step', 'Details', 'Remarks',
+    'Attachments', 'Request Date', 'Due Date',
+    'Start', 'Pause', 'Resume', 'End',
+    'TAT (mins)', 'Total TAT (mins)', 'Status'
+  ];
+
+  function escapeHtml(s) {
+    return String(s || '').replace(/[&<>"']/g, c => ({
+      '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+    }[c] || c));
+  }
+
+  function disableActions(disabled) {
+    ['startBtn','pauseBtn','resumeBtn','endBtn'].forEach(id => {
+      const b = document.getElementById(id);
+      if (b) b.disabled = !!disabled;
+    });
+  }
+
+  function notifyInline(msg, type) {
+    const n = document.getElementById('hrNote');
+    if (n) {
+      n.className = 'hr-note ' + (type === 'err' ? 'err' : 'ok');
+      n.textContent = msg || '';
+      n.style.display = msg ? 'block' : 'none';
+    }
+    const notice = document.getElementById('hrNotice');
+    if (notice) {
+      notice.className = n ? n.className : (type === 'err' ? 'hr-note err' : 'hr-note ok');
+      notice.textContent = msg || '';
+      notice.style.display = msg ? 'block' : 'none';
+    }
+  }
+
+  function statusBadge(statusRaw) {
+    const s  = String(statusRaw || '').trim();
+    const sl = s.toLowerCase();
+    const isCompleted = /done|complete|completed|closed|end(ed)?/i.test(sl);
+    const isPaused    = /pause|paused/i.test(sl);
+    const isResumed   = /resume|resumed/i.test(sl);
+    const isStarted   = /start|started|in[-\s]?progress/i.test(sl);
+    const isOverdue   = /overdue|exceed/i.test(sl);
+
+    let bg = '#334155', fg = '#e2e8f0', br = 'rgba(148,163,184,.35)';
+    if (isCompleted) {
+      bg = 'rgba(34,197,94,.18)';   fg = '#22c55e';  br = 'rgba(34,197,94,.35)';
+    } else if (isPaused) {
+      bg = 'rgba(245,158,11,.18)';  fg = '#f59e0b';  br = 'rgba(245,158,11,.35)';
+    } else if (isResumed || isStarted) {
+      bg = 'rgba(59,130,246,.18)';  fg = '#60a5fa';  br = 'rgba(59,130,246,.35)';
+    }
+    if (isOverdue && !isCompleted) {
+      bg = 'rgba(248,113,113,.18)'; fg = '#f87171';  br = 'rgba(248,113,113,.35)';
+    }
+
+    const style = [
+      'display:inline-block',
+      'padding:2px 8px',
+      'border-radius:999px',
+      'background:'+bg,
+      'color:'+fg,
+      'border:1px solid '+br,
+      'font-weight:600',
+      'font-size:.85rem',
+      'line-height:1.6',
+      'white-space:nowrap'
+    ].join(';');
+
+    return '<span class="status-badge" style="'+style+'">'+escapeHtml(s || '—')+'</span>';
+  }
+
+  // Small icon to show status inside the Request ID dropdown
+  function statusIconForOption(statusRaw) {
+    const s = String(statusRaw || '').toLowerCase();
+    if (!s) return '•';
+    if (/paused/.test(s))                      return '⏸';
+    if (/resume|in[-\s]?progress/.test(s))     return '▶';
+    if (/completed|closed|ended|done/.test(s)) return '✔';
+    if (/overdue|exceed/.test(s))              return '⚠';
+    if (/open/.test(s))                        return '●';
+    return '•';
+  }
+
+  function applyRowState(tr, statusText) {
+    const s = String(statusText || '').toLowerCase();
+    tr.classList.remove('state-start','state-pause','state-resume','state-end');
+    if (s === 'in progress' || s === 'resumed') tr.classList.add('state-start');
+    else if (s === 'paused') tr.classList.add('state-pause');
+    else if (/completed|closed|ended|done/.test(s)) tr.classList.add('state-end');
+  }
+
+  function emitAppEvent(name, detail) {
+    try {
+      window.dispatchEvent(new CustomEvent(name, { detail }));
+    } catch (_) {}
+  }
+
+  /* ------- Request ID dropdown + autofill behavior ------- */
+
+  async function loadActiveRequestIds() {
+    const sel  = document.getElementById('reqid');
+    const hint = document.getElementById('reqidHint');
+    if (!sel) return;
+
+    try {
+      const list = await call('getActiveRequests');
+      __activeRequests = Array.isArray(list) ? list : [];
+
+      let html = '<option value="">Select Request ID</option>';
+      __activeRequests.forEach(r => {
+        const id  = r.requestId || r.requestid || r['Request ID'] || '';
+        if (!id) return;
+        const comp   = r.company || r.Company || '';
+        const svc    = r.service || r.Service || '';
+        const status = r.status  || r.Status  || '';
+        const icon   = statusIconForOption(status);
+
+        const parts = [];
+        if (icon)   parts.push(icon);
+        parts.push(id);
+        if (comp)   parts.push(comp);
+        if (svc)    parts.push(svc);
+        if (status) parts.push('[' + status + ']');
+
+        html += '<option value="'+escapeHtml(id)+'">'+escapeHtml(parts.join(' — '))+'</option>';
+      });
+      sel.innerHTML = html;
+
+      if (hint) {
+        if (__activeRequests.length) {
+          hint.className = 'hr-note ok';
+          hint.textContent = 'Active requests: ' + __activeRequests.length;
+        } else {
+          hint.className = 'hr-note err';
+          hint.textContent = 'No active requests (OPEN / PAUSED / RESUMED / IN-PROGRESS).';
+        }
+        hint.style.display = 'block';
+      }
+    } catch (e) {
+      if (hint) {
+        hint.className = 'hr-note err';
+        hint.textContent = (e && e.message) || 'Failed to load active Request IDs.';
+        hint.style.display = 'block';
+      } else {
+        notifyInline((e && e.message) || String(e), 'err');
+      }
+    }
+  }
+
+  function clearSelectionUi() {
+    const companySel = document.getElementById('company');
+    const svcSel     = document.getElementById('svc');
+    const stepSel    = document.getElementById('step');
+    const detView    = document.getElementById('details_display');
+    const remarks    = document.getElementById('details');
+
+    if (companySel) {
+      companySel.disabled = false; // keep last value, just unlock if needed
+    }
+    if (svcSel) {
+      svcSel.disabled = false;
+      svcSel.value = '';
+    }
+    if (stepSel) {
+      stepSel.disabled = false;
+      stepSel.innerHTML = '';
+    }
+    if (detView) detView.value = '';
+    if (remarks) remarks.value = '';
+  }
+
+  async function onRequestIdChange() {
+    const sel = document.getElementById('reqid');
+    const id  = sel ? sel.value : '';
+    clearSelectionUi(); // always reset / unlock first
+
+    if (!id) {
+      notifyInline('', 'ok');
+      return;
+    }
+
+    try {
+      let info = (__activeRequests || []).find(r => (r.requestId || r['Request ID']) === id) || null;
+      if (!info) {
+        info = await call('getRequestInfo', id);
+      }
+      if (!info) {
+        notifyInline('Selected Request ID is not available or visible.', 'err');
+        return;
+      }
+
+      const company = info.company     || info.Company     || '';
+      const service = info.service     || info.Service     || '';
+      const stepVal = info.processStep || info['Process Step'] || '';
+      const details = info.details     || info.Details     || '';
+      const remarks = info.remarks     || info.Remarks     || '';
+
+      const companySel = document.getElementById('company');
+      if (companySel && company) {
+        companySel.value    = company;
+        companySel.disabled = true;
+        try { await call('setCompany', company); } catch (_) {}
+      }
+
+      const svcSel = document.getElementById('svc');
+      if (svcSel) {
+        if (service) {
+          let opt = Array.from(svcSel.options).find(o => o.value === service);
+          if (!opt) {
+            opt = document.createElement('option');
+            opt.value = service;
+            opt.textContent = service;
+            svcSel.appendChild(opt);
+          }
+          svcSel.value    = service;
+          svcSel.disabled = true;
+        }
+      }
+
+      const detView = document.getElementById('details_display');
+      if (detView) detView.value = details || '';
+
+      const remarksInput = document.getElementById('details');
+      if (remarksInput) remarksInput.value = remarks || '';
+
+      // Populate process steps for the service, Process Step remains editable
+      await populateProcessSteps();
+      const stepSel = document.getElementById('step');
+      if (stepSel && stepVal) {
+        const has = Array.from(stepSel.options).some(o => o.value === stepVal);
+        if (has) stepSel.value = stepVal;
+      }
+
+      notifyInline('', 'ok');
+    } catch (e) {
+      notifyInline((e && e.message) || String(e), 'err');
+    }
+  }
+
+  /* ------- Company / Service / Step ------- */
+
+  async function onCompanyChange() {
+    try {
+      const company = document.getElementById('company').value;
+      await call('setCompany', company);
+      emitAppEvent('company-changed', company);
+      reloadLogsThrottled();
+    } catch (e) {
+      notifyInline((e && e.message) || String(e), 'err');
+    }
+  }
+
+  async function populateServices() {
+    try {
+      const svcSel = document.getElementById('svc');
+      if (!svcSel) return;
+      const services = await call('getServices');
+      const prior    = svcSel.value;
+      svcSel.innerHTML = '<option value="">Select a service</option>' +
+        (services || []).map(s => '<option>'+escapeHtml(s)+'</option>').join('');
+      if (prior && Array.from(svcSel.options).some(o => o.value === prior)) {
+        svcSel.value = prior;
+      }
+    } catch (e) {
+      notifyInline((e && e.message) || String(e), 'err');
+    }
+  }
+
+  async function populateProcessSteps() {
+    const svcSel  = document.getElementById('svc');
+    const stepSel = document.getElementById('step');
+    if (!stepSel) return;
+
+    const service = svcSel ? (svcSel.value || '') : '';
+    if (!service) {
+      stepSel.innerHTML = '';
+      return;
+    }
+    try {
+      const steps = await call('getProcessSteps', service);
+      const prior = stepSel.value;
+      stepSel.innerHTML = (steps || []).map(s => '<option>'+escapeHtml(s)+'</option>').join('');
+      if (prior && Array.from(stepSel.options).some(o => o.value === prior)) {
+        stepSel.value = prior;
+      }
+    } catch (e) {
+      notifyInline((e && e.message) || String(e), 'err');
+    }
+  }
+
+  function onServiceChange() {
+    populateProcessSteps().catch(e => notifyInline((e && e.message) || String(e), 'err'));
+  }
+
+  function reloadLogsThrottled() {
+    clearTimeout(__reloadTimer);
+    __reloadTimer = setTimeout(reloadLogs, 150);
+  }
+
+  function lockControls(started) {
+    const svc  = document.getElementById('svc');
+    const step = document.getElementById('step');
+    if (svc)  svc.disabled  = !!started;
+    if (step) step.disabled = !!started;
+  }
+
+  function validateStartInputs() {
+    const svc  = (document.getElementById('svc')?.value || '').trim();
+    const step = (document.getElementById('step')?.value || '').trim();
+    if (!svc) {
+      notifyInline('Please select a Service before starting.', 'err');
+      return false;
+    }
+    const isAdHoc = /ad\s*-?\s*hoc/i.test(svc);
+    if (!isAdHoc && !step) {
+      notifyInline('Please select both Service and Process Step before starting.', 'err');
+      return false;
+    }
+    return true;
+  }
+
+  function findRowByRequestIdLocal(reqId) {
+    const tbody = document.getElementById('logs');
+    if (!tbody) return null;
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    const idx  = HEADERS.indexOf('Request ID');
+    return rows.find(tr => (tr.cells[idx]?.textContent || '').trim() === String(reqId || ''));
+  }
+
+  /* ------- Start / Pause / Resume / End actions ------- */
+
+  async function act(action) {
+    if (__inFlight) return;
+
+    const req     = (document.getElementById('reqid')?.value || '').trim();
+    const service = document.getElementById('svc')?.value;
+    const step    = document.getElementById('step')?.value;
+    const remarks = document.getElementById('details')?.value;
+    const selectedCompany = document.getElementById('company')?.value || '';
+
+    if (!req) {
+      notifyInline('Please select a Request ID first.', 'err');
+      return;
+    }
+    if (action === 'Start' && !validateStartInputs()) return;
+
+    const hitRow = findRowByRequestIdLocal(req);
+    if (!hitRow) {
+      const msg = {
+        Start : 'Cannot start: Request ID not found.',
+        Pause : 'Cannot pause: Request ID not found.',
+        Resume: 'Cannot resume: Request ID not found.',
+        End   : 'Cannot end: Request ID not found.'
+      }[action] || 'Request ID not found.';
+      notifyInline(msg, 'err');
+      return;
+    }
+
+    const cidx         = HEADERS.indexOf('Company');
+    const tableCompany = (hitRow.cells[cidx]?.textContent || '').trim();
+    if (tableCompany && selectedCompany && tableCompany !== selectedCompany) {
+      const msg = {
+        Start : 'Cannot start: Selected company does not match the Request ID.',
+        Pause : 'Cannot pause: Selected company does not match the Request ID.',
+        Resume: 'Cannot resume: Selected company does not match the Request ID.',
+        End   : 'Cannot end: Selected company does not match the Request ID.'
+      }[action] || 'Company mismatch.';
+      notifyInline(msg, 'err');
+      return;
+    }
+
+    __inFlight = true;
+    disableActions(true);
+    document.getElementById('loading').style.display = 'block';
+    notifyInline('', 'ok');
+
+    try {
+      const res = await call('logAction', action, req, service, step, remarks);
+      if (res && res.ok) {
+        if (action === 'Start') lockControls(true);
+
+        // Patch the row in the table
+        try {
+          const tbody = document.getElementById('logs');
+          const rows  = Array.from(tbody.querySelectorAll('tr'));
+          const ridx  = HEADERS.indexOf('Request ID');
+          const row   = rows.find(tr => (tr.cells[ridx]?.textContent || '').trim() === String(res.row['Request ID'] || ''));
+          if (row) {
+            HEADERS.forEach((h, i) => {
+              if (h === 'Total TAT (mins)') return;
+              if (h === 'Status') {
+                row.cells[i].innerHTML = statusBadge(res.row[h] || '');
+              } else if (h === 'Details') {
+                row.cells[i].textContent = res.row['Details'] || '';
+              } else if (h === 'Remarks') {
+                row.cells[i].textContent = res.row['Remarks'] || '';
+              } else if (h === 'Attachments') {
+                const raw = res.row['Attachments'] || '';
+                if (!raw) {
+                  row.cells[i].innerHTML = '';
+                } else {
+                  const parts = String(raw).split(/\s*\n+\s*/).filter(Boolean);
+                  const linksHtml = parts.map((u, idx2) => {
+                    const label   = parts.length === 1 ? 'Open' : 'File ' + (idx2+1);
+                    const safeUrl = escapeHtml(u);
+                    if (/^https?:\/\//i.test(u)) {
+                      return '<a href="'+safeUrl+'" target="_blank" rel="noopener">'+label+'</a>';
+                    }
+                    return escapeHtml(u);
+                  }).join('<br>');
+                  row.cells[i].innerHTML = linksHtml;
+                }
+              } else {
+                row.cells[i].textContent = res.row[h] || '';
+              }
+            });
+            applyRowState(row, res.row['Status']);
+          }
+        } catch (_) {}
+
+        notifyInline(res.message || 'Done.', 'ok');
+        reloadLogsThrottled();
+        emitAppEvent('hr-data-changed', { source:'hr-request', action, requestId:req });
+      } else {
+        notifyInline((res && res.message) || 'Action failed.', 'err');
+      }
+    } catch (e) {
+      notifyInline((e && e.message) || String(e), 'err');
+    } finally {
+      __inFlight = false;
+      disableActions(false);
+      document.getElementById('loading').style.display = 'none';
+    }
+  }
+
+  /* ------- Logs table: render + search + reload ------- */
+
+  function renderLogs(rows) {
+    const el = document.getElementById('logs');
+    if (!el) return;
+
+    __allRowsCache = [];
+
+    if (!rows || !rows.length) {
+      el.innerHTML = '<tr><td colspan="16" style="padding:14px;color:#9aa2b2;text-align:center;">No records found.</td></tr>';
+      emitAppEvent('hr-logs-reloaded');
+      return;
+    }
+
+    const sumBy = {};
+    rows.forEach(r => {
+      const id  = r['Request ID'] || '';
+      let tat   = parseFloat(String(r['TAT (mins)'] || '').replace(/,/g, '')) || 0;
+      if (!tat || tat <= 0) {
+        const startRaw = r['Start'], endRaw = r['End'];
+        const start = startRaw ? new Date(startRaw) : null;
+        const end   = endRaw   ? new Date(endRaw)   : null;
+        tat = (start instanceof Date && !isNaN(start) &&
+               end   instanceof Date && !isNaN(end))
+          ? (end.getTime() - start.getTime()) / 60000
+          : 0;
+      }
+      sumBy[id] = (sumBy[id] || 0) + tat;
+    });
+
+    let html = '';
+    rows.forEach(r => {
+      const id        = r['Request ID'] || '';
+      const statusTxt = r['Status'] || '';
+      const rowClass =
+        /paused/i.test(statusTxt)                       ? 'state-pause' :
+        /resumed/i.test(statusTxt)                      ? 'state-resume' :
+        /completed|closed|ended|done/i.test(statusTxt)  ? 'state-end' :
+        /in\s*progress/i.test(statusTxt)                ? 'state-start' :
+        '';
+
+      const tds = HEADERS.map(h => {
+        if (h === 'Total TAT (mins)') {
+          const total = sumBy[id];
+          return '<td>'+(Number.isFinite(total) && total > 0 ? total.toFixed(2) : '')+'</td>';
+        }
+        if (h === 'Status') {
+          return '<td>'+statusBadge(statusTxt)+'</td>';
+        }
+        if (h === 'Details') {
+          return '<td>'+escapeHtml(r['Details'] || '')+'</td>';
+        }
+        if (h === 'Remarks') {
+          return '<td>'+escapeHtml(r['Remarks'] || '')+'</td>';
+        }
+        if (h === 'Attachments') {
+          const raw = r['Attachments'] || '';
+          if (!raw) return '<td></td>';
+          const parts = String(raw).split(/\s*\n+\s*/).filter(Boolean);
+          const linksHtml = parts.map((u, idx2) => {
+            const label   = parts.length === 1 ? 'Open' : 'File ' + (idx2+1);
+            const safeUrl = escapeHtml(u);
+            if (/^https?:\/\//i.test(u)) {
+              return '<a href="'+safeUrl+'" target="_blank" rel="noopener">'+label+'</a>';
+            }
+            return escapeHtml(u);
+          }).join('<br>');
+          return '<td>'+linksHtml+'</td>';
+        }
+        return '<td>'+escapeHtml(r[h] || '')+'</td>';
+      }).join('');
+
+      html += '<tr class="'+rowClass+'">'+tds+'</tr>';
+    });
+
+    el.innerHTML   = html;
+    __allRowsCache = Array.from(document.querySelectorAll('#logs tr')).map(tr => tr.outerHTML);
+    emitAppEvent('hr-logs-reloaded');
+  }
+
+  function searchColumn(column) {
+    const inputId     = 'search-' + column.toLowerCase().replace(/\s+/g, '-');
+    const searchValue = (document.getElementById(inputId)?.value || '').toLowerCase();
+
+    if (!__allRowsCache.length) {
+      const rows = Array.from(document.querySelectorAll('#logs tr'));
+      __allRowsCache = rows.map(tr => tr.outerHTML);
+    }
+
+    const container = document.getElementById('logs');
+    if (!searchValue) {
+      container.innerHTML = __allRowsCache.join('');
+      return;
+    }
+
+    const colIdx = HEADERS.indexOf(column);
+    const rows   = Array.from(document.querySelectorAll('#logs tr'));
+    rows.forEach(row => {
+      const cellValue = (row.cells[colIdx]?.textContent || '').toLowerCase();
+      row.style.display = cellValue.includes(searchValue) ? '' : 'none';
+    });
+  }
+
+  function reloadLogs() {
+    google.script.run
+      .withSuccessHandler(rows => renderLogs(rows))
+      .withFailureHandler(err => {
+        notifyInline((err && err.message) || 'Failed to load logs.', 'err');
+        emitAppEvent('hr-logs-reloaded');
+      })
+      .getLogData();
+  }
+
+  function hrReload() {
+    const btn  = document.getElementById('hrReloadBtn');
+    const spin = document.getElementById('hrReloadSpin');
+    if (btn)  btn.disabled = true;
+    if (spin) spin.style.display = 'inline';
+
+    const once = () => {
+      if (btn)  btn.disabled = false;
+      if (spin) spin.style.display = 'none';
+      window.removeEventListener('hr-logs-reloaded', once);
+    };
+    window.addEventListener('hr-logs-reloaded', once, { once:true });
+
+    try {
+      reloadLogs();
+    } catch (e) {
+      if (btn)  btn.disabled = false;
+      if (spin) spin.style.display = 'none';
+      notifyInline((e && e.message) || String(e), 'err');
+    }
+  }
+
+  /* ------- Selection reload (Request ID + full selection reset) ------- */
+
+  async function reloadSelection() {
+    const sel = document.getElementById('reqid');
+    if (sel) sel.value = '';
+
+    clearSelectionUi();
+
+    try {
+      await Promise.all([
+        populateServices(),
+        populateProcessSteps(),
+        loadActiveRequestIds()
+      ]);
+      notifyInline('Selection cleared. Choose a Request ID to begin.', 'ok');
+    } catch (e) {
+      notifyInline((e && e.message) || String(e), 'err');
+    }
+  }
+
+  /* ------- Initial load & cross-module sync ------- */
+
+  (async () => {
+    try {
+      const rows = await call('getLogData');
+      renderLogs(rows);
+
+      const lastCompany = await call('getCompany');
+      const sel = document.getElementById('company');
+      if (sel && (lastCompany === 'Onward' || lastCompany === 'ITAM' || lastCompany === 'IREAL' || lastCompany === 'LATTE')) {
+        sel.value = lastCompany;
+      }
+
+      await populateServices();
+      await populateProcessSteps();
+      await loadActiveRequestIds();
+    } catch (e) {
+      notifyInline((e && e.message) || String(e), 'err');
+    }
+  })();
+
+  // When other modules (e.g., Request Form) update data, keep in sync
+  window.addEventListener('hr-data-changed', function() {
+    reloadLogsThrottled();
+    loadActiveRequestIds().catch(e => notifyInline((e && e.message) || String(e), 'err'));
+  });
+</script>

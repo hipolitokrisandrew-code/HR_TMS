@@ -1,0 +1,756 @@
+<div class="panel">
+  <style>
+    /* Compact calendar overlay (dark, green/blue accents) */
+    .kpi-datebar { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; gap:12px; flex-wrap:wrap; }
+    .kpi-date-controls { display:flex; gap:8px; align-items:end; flex-wrap:wrap; }
+    .kpi-field { display:flex; flex-direction:column; gap:4px; }
+    .kpi-field>label { font-size:.85rem; color:#9aa2b2; }
+    .kpi-btn { appearance:none; border:1px solid var(--border); background:#0f152b; color:#e6edf7; border-radius:10px; padding:8px 10px; cursor:pointer; }
+    .kpi-btn:hover { background:rgba(255,255,255,.05); }
+    .kpi-btn:disabled { opacity:.6; cursor:not-allowed; }
+    .kpi-chip { display:inline-flex; align-items:center; gap:6px; font-size:.9rem; color:#cbd5e1; padding:2px 6px; border-radius:8px; border:1px solid var(--border); background:#0b1020; }
+
+    /* Preset dropdown */
+    .preset-wrap { position:relative; }
+    .preset-menu { position:absolute; top:110%; right:0; min-width:220px; background:#0b1020; border:1px solid var(--border); border-radius:10px; box-shadow:0 10px 28px rgba(0,0,0,.4); padding:6px; z-index:50; display:none; }
+    .preset-menu.open { display:block; }
+    .preset-item { padding:8px 10px; border-radius:8px; color:#e6edf7; cursor:pointer; }
+    .preset-item:hover, .preset-item:focus { outline:none; background:#0f152b; }
+
+    /* Calendar modal */
+    .cal-mask { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:100; }
+    .cal-mask.open { display:flex; }
+    .cal-card { width:320px; background:#0b1020; border:1px solid var(--border); border-radius:12px; box-shadow:0 14px 42px rgba(0,0,0,.55); }
+    .cal-head { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid var(--border); }
+    .cal-head h4 { margin:0; font-size:1rem; }
+    .cal-nav { display:flex; gap:6px; }
+    .cal-nav .kpi-btn { padding:6px 8px; }
+    .cal-grid { padding:10px 12px; }
+    .cal-week { display:grid; grid-template-columns:repeat(7,1fr); gap:6px; text-align:center; }
+    .cal-dow { font-size:.8rem; color:#9aa2b2; padding:4px 0; }
+    .cal-day { padding:8px 0; border:1px solid transparent; border-radius:8px; cursor:pointer; user-select:none; }
+    .cal-day:focus { outline:2px solid #2563eb; outline-offset:2px; }
+    .cal-day:hover { background:#0f152b; }
+    .cal-day.muted { color:#64748b; }
+    .cal-day.sel { background:#1c2547; border-color:#1f2a44; }
+    .cal-day.range { background:rgba(34,197,94,.10); }
+    .cal-foot { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:10px 12px; border-top:1px solid var(--border); }
+    .cal-foot .hint { color:#9aa2b2; font-size:.85rem; }
+    .warn { color:#f59e0b; font-size:.85rem; }
+  </style>
+
+  <div class="kpi-datebar">
+    <h3 style="margin:0">KPI & SLA Report</h3>
+    <div class="kpi-date-controls">
+      <div class="kpi-field">
+        <label for="kpiCompany">Company</label>
+        <select id="kpiCompany" style="min-width:165px;">
+          <option value="ALL" selected>ALL</option>
+          <option value="ONWARD">ONWARD</option>
+          <option value="ITAM">ITAM</option>
+          <option value="IREAL">IREAL</option>
+          <option value="LATTE">LATTE</option>
+        </select>
+      </div>
+      <div class="kpi-field">
+        <label for="kpiView">View</label>
+        <select id="kpiView" style="min-width:155px;">
+          <option value="KPI">KPI</option>
+          <option value="KPA">KPA</option>
+          <option value="SLA" selected>SLA</option>
+        </select>
+      </div>
+
+      <!-- From/To as buttons + labels -->
+      <div class="kpi-field" style="min-width:220px;">
+        <label>From</label>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <button id="btnFrom" class="kpi-btn" aria-haspopup="dialog" aria-controls="kpiCal">Pick date</button>
+          <span id="lblFrom" class="kpi-chip">—</span>
+        </div>
+      </div>
+      <div class="kpi-field" style="min-width:220px;">
+        <label>To</label>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <button id="btnTo" class="kpi-btn" aria-haspopup="dialog" aria-controls="kpiCal">Pick date</button>
+          <span id="lblTo" class="kpi-chip">—</span>
+        </div>
+      </div>
+
+      <!-- Presets + Refresh -->
+      <div class="kpi-field preset-wrap">
+        <label>&nbsp;</label>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button id="btnPresets" class="kpi-btn" aria-haspopup="true" aria-expanded="false">Presets ▾</button>
+          <div id="presetMenu" class="preset-menu" role="menu">
+            <div class="preset-item" tabindex="0" data-preset="today">Today</div>
+            <div class="preset-item" tabindex="0" data-preset="yesterday">Yesterday</div>
+            <div class="preset-item" tabindex="0" data-preset="thisweek">This Week</div>
+            <div class="preset-item" tabindex="0" data-preset="last7">Last 7 Days</div>
+            <div class="preset-item" tabindex="0" data-preset="thismonth">This Month</div>
+            <div class="preset-item" tabindex="0" data-preset="lastmonth">Last Month</div>
+            <div class="preset-item" tabindex="0" data-preset="custom">Custom Range…</div>
+          </div>
+          <button id="kpiRefresh" class="btn" onclick="refreshKpiData()">Refresh</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="kpiLoading" style="display:none;color:#9aa2b2;margin-bottom:10px;">loading…</div>
+  <div id="kpiNoData" style="display:none;color:#9aa2b2;margin-bottom:10px;">No data for selected range.</div>
+
+  <div id="kpi-cards" style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;">
+    <div style="background:#0f152b;border:1px solid var(--border);border-radius:12px;padding:14px;">
+      <div style="font-size:.9rem;color:#9aa2b2;">SLA Target</div>
+      <div id="kpiTarget" style="font-size:1.6rem;font-weight:700;">—%</div>
+    </div>
+    <div style="background:#0f152b;border:1px solid var(--border);border-radius:12px;padding:14px;">
+      <div style="font-size:.9rem;color:#9aa2b2;">%Closed</div>
+      <div id="kpiPctClosed" style="font-size:1.6rem;font-weight:700;">—%</div>
+    </div>
+    <div style="background:#0f152b;border:1px solid var(--border);border-radius:12px;padding:14px;">
+      <div style="font-size:.9rem;color:#9aa2b2;">Closed within SLA</div>
+      <div id="kpiClosedWithin" style="font-size:1.6rem;font-weight:700;">—</div>
+    </div>
+    <div style="background:#0f152b;border:1px solid var(--border);border-radius:12px;padding:14px;">
+      <div style="font-size:.9rem;color:#9aa2b2;">Closed exceed SLA</div>
+      <div id="kpiClosedExceed" style="font-size:1.6rem;font-weight:700;">—</div>
+    </div>
+    <div style="background:#0f152b;border:1px solid var(--border);border-radius:12px;padding:14px;">
+      <div style="font-size:.9rem;color:#9aa2b2;">TOTAL</div>
+      <div id="kpiTotal" style="font-size:1.6rem;font-weight:700;">—</div>
+    </div>
+  </div>
+
+  <div id="kpi-sla-charts" style="display:grid;grid-template-columns:340px 1fr;gap:16px;margin-top:14px;">
+    <div style="background:#0f152b;border:1px solid var(--border);border-radius:12px;padding:16px;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:320px;">
+      <div id="kpiRing" style="width:280px;height:280px;"></div>
+      <div id="kpiRingLbl" style="margin-top:6px;font-weight:600;color:#9aa2b2;">SLA vs Target</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+      <div style="background:#0f152b;border:1px solid var(--border);border-radius:12px;padding:16px;min-height:280px;">
+        <div style="font-weight:700;margin-bottom:8px;">Open Snapshot</div>
+        <div id="kpiOpenDonut" style="width:100%;height:240px;"></div>
+      </div>
+      <div style="background:#0f152b;border:1px solid var(--border);border-radius:12px;padding:16px;">
+        <div style="font-weight:700;margin-bottom:8px;">Legend</div>
+        <div style="color:#cbd5e1;font-size:.95rem;line-height:1.6;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+            <i style="width:12px;height:12px;border-radius:999px;background:#22c55e;display:inline-block;"></i>
+            On Track (≥ Target)
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+            <i style="width:12px;height:12px;border-radius:999px;background:#f59e0b;display:inline-block;"></i>
+            Near Target
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <i style="width:12px;height:12px;border-radius:999px;background:#f87171;display:inline-block;"></i>
+            Below Target
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="kpi-per-service" style="display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-top:16px;">
+    <div style="background:#0f152b;border:1px solid var(--border);border-radius:12px;padding:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <div style="font-weight:700;">Per Service & Process Step</div>
+        <div id="kpiSvcCount" style="color:#9aa2b2;font-size:.9rem;"></div>
+      </div>
+      <div id="kpiServiceBar" style="width:100%;height:380px;"></div>
+    </div>
+
+    <div style="background:#0f152b;border:1px solid var(--border);border-radius:12px;padding:16px;">
+      <div style="font-weight:700;margin-bottom:8px;">Summary by Service</div>
+      <div id="kpiSvcList" style="display:flex;flex-direction:column;gap:8px;"></div>
+    </div>
+  </div>
+
+  <div id="kpi-extras" style="display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:16px;margin-top:16px;">
+    <div style="background:#0f152b;border:1px solid var(--border);border-radius:12px;padding:16px;min-height:340px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <div style="font-weight:700;">SLA Performance Trend</div>
+        <div style="display:flex;gap:10px;align-items:center;color:#cbd5e1;font-size:.85rem;">
+          <span style="display:inline-flex;align-items:center;gap:6px;">
+            <i style="width:12px;height:12px;border-radius:999px;background:#22c55e;display:inline-block;"></i> %Closed
+          </span>
+          <span style="display:inline-flex;align-items:center;gap:6px;">
+            <i style="width:16px;height:0;border-top:2px dashed #f59e0b;display:inline-block;"></i> Target
+          </span>
+        </div>
+      </div>
+      <div id="kpiTrend" style="width:100%;height:300px;"></div>
+    </div>
+    <div style="background:#0f152b;border:1px solid var(--border);border-radius:12px;padding:16px;">
+      <div style="font-weight:700;margin-bottom:8px;">Closed vs Open</div>
+      <div id="kpiClosedOpen" style="width:100%;height:300px;"></div>
+    </div>
+    <div style="background:#0f152b;border:1px solid var(--border);border-radius:12px;padding:16px;">
+      <div style="font-weight:700;margin-bottom:8px;">TAT Distribution</div>
+      <div id="kpiTatHist" style="width:100%;height:300px;"></div>
+    </div>
+  </div>
+
+  <div style="margin-top:16px;border:1px solid var(--border);border-radius:12px;overflow:auto;">
+    <table class="grid">
+      <thead>
+        <tr id="cols-header">
+          <th>Service</th>
+          <th>Process Step</th>
+          <th>Closed exceed SLA</th>
+          <th>Closed within SLA</th>
+          <th>Open exceed SLA</th>
+          <th>Open within SLA</th>
+          <th>Newly Opened</th>
+          <th>TOTAL</th>
+          <th>Reminder Notice</th>
+          <th>Excess Count</th>
+          <th>Minor–Terminal</th>
+          <th>%Closed</th>
+        </tr>
+      </thead>
+      <tbody id="kpiRows"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Calendar modal -->
+<div id="kpiCal" class="cal-mask" role="dialog" aria-modal="true" aria-labelledby="calTitle">
+  <div class="cal-card">
+    <div class="cal-head">
+      <div class="cal-nav">
+        <button id="calPrev" class="kpi-btn" aria-label="Previous Month">◀</button>
+        <button id="calNext" class="kpi-btn" aria-label="Next Month">▶</button>
+      </div>
+      <h4 id="calTitle"></h4>
+      <button id="calClose" class="kpi-btn" aria-label="Close">✕</button>
+    </div>
+    <div class="cal-grid">
+      <div class="cal-week" aria-hidden="true">
+        <div class="cal-dow">Su</div><div class="cal-dow">Mo</div><div class="cal-dow">Tu</div>
+        <div class="cal-dow">We</div><div class="cal-dow">Th</div><div class="cal-dow">Fr</div><div class="cal-dow">Sa</div>
+      </div>
+      <div id="calDays" class="cal-week" role="grid" aria-label="Calendar dates" style="grid-auto-rows:36px; grid-template-rows:repeat(6,36px);"></div>
+    </div>
+    <div class="cal-foot">
+      <div class="hint" id="calHint">Use arrows to navigate. Enter to select.</div>
+      <div style="display:flex; gap:8px;">
+        <button id="calToday" class="kpi-btn">Today</button>
+        <button id="calApply" class="btn">Apply</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  /* ---------- ONE-TIME Google Charts loader ---------- */
+  const ChartLoader = (function(){
+    let _p;
+    return {
+      ready(){
+        if (_p) return _p;
+        _p = new Promise((resolve)=>{
+          function loadPkgs(){ google.charts.load('current', { packages: ['corechart','bar'] }); google.charts.setOnLoadCallback(resolve); }
+          if (window.google && google.charts) loadPkgs();
+          else {
+            const s = document.createElement('script');
+            s.src = 'https://www.gstatic.com/charts/loader.js';
+            s.onload = loadPkgs;
+            document.head.appendChild(s);
+          }
+        });
+        return _p;
+      }
+    };
+  })();
+
+  /* ---------- Date utilities (client, ISO only) ---------- */
+  const pad2 = n => String(n).padStart(2,'0');
+  function fmtLabel(iso){ // "YYYY-MM-DD" -> "Mon DD, YYYY"
+    if (!iso) return '—';
+    const [y,m,d] = iso.split('-').map(Number);
+    const date = new Date(Date.UTC(y, m-1, d, 12)); // noon safe
+    return date.toLocaleDateString('en-US', { month:'short', day:'2-digit', year:'numeric' });
+  }
+  function todayISO(){
+    const now = new Date();
+    const y = now.getFullYear(), m = now.getMonth()+1, d = now.getDate();
+    return `${y}-${pad2(m)}-${pad2(d)}`;
+  }
+  function addDaysISO(iso, days){
+    const [y,m,d] = iso.split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m-1, d, 12));
+    dt.setUTCDate(dt.getUTCDate()+days);
+    return `${dt.getUTCFullYear()}-${pad2(dt.getUTCMonth()+1)}-${pad2(dt.getUTCDate())}`;
+  }
+  function startOfMonthISO(iso){
+    const [y,m] = iso.split('-').map(Number);
+    return `${y}-${pad2(m)}-01`;
+  }
+  function endOfMonthISO(iso){
+    const [y,m] = iso.split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m, 0, 12));
+    return `${dt.getUTCFullYear()}-${pad2(dt.getUTCMonth()+1)}-${pad2(dt.getUTCDate())}`;
+  }
+  function firstOfThisMonthISO(){ const t=todayISO(); return startOfMonthISO(t); }
+  function lastOfThisMonthISO(){ const t=todayISO(); return endOfMonthISO(t); }
+  function startOfWeekISO(iso){ // Sunday start
+    const [y,m,d] = iso.split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m-1, d, 12));
+    const dow = dt.getUTCDay(); // 0..6
+    return addDaysISO(iso, -dow);
+  }
+
+  /* ---------- Persistent range state ---------- */
+  let __fromISO = null;
+  let __toISO   = null;
+
+  /* ---------- Calendar UI state ---------- */
+  let __calOpen = false;
+  let __calMode = 'from'; // 'from' | 'to'
+  let __calYear = 0;
+  let __calMonth = 0; // 1..12
+  let __calFocusISO = null;
+
+  const fmt = n => Number(n||0).toLocaleString();
+  const pct = n => (Number(n||0)).toFixed(2) + '%';
+  function colorForPct(p, target){ if (p >= target) return '#22c55e'; if (p >= target - 5) return '#f59e0b'; return '#f87171'; }
+
+  /* ---------- Trend drawing (unchanged) ---------- */
+  function drawSlaTrend(trendArray, targetPct){
+    const host = document.getElementById('kpiTrend');
+    if (!host) return;
+    if (!trendArray || !trendArray.length){
+      host.innerHTML = '<div style="color:#9aa2b2;text-align:center;padding:16px;">No trend data in current range.</div>';
+      return;
+    }
+    const data = new google.visualization.DataTable();
+    data.addColumn('string', 'Date');
+    data.addColumn('number', '%Closed');
+    data.addColumn('number', 'Target');
+    data.addColumn({type:'string', role:'tooltip', p:{html:true}});
+    const rows = trendArray.map(t => {
+      const date = String(t.dateLabel || t.date);
+      const closed = Number(t.pctClosed || 0);
+      const target = Number(targetPct || 95);
+      const tip = `
+        <div>
+          <div class="kpi-tip-title">${date}</div>
+          <div class="kpi-tip-row"><span>% Closed</span><b>${closed.toFixed(2)}%</b></div>
+          <div class="kpi-tip-row"><span>Target SLA</span><b>${target.toFixed(2)}%</b></div>
+        </div>`;
+      return [date, closed, target, tip];
+    });
+    data.addRows(rows);
+    const options = {
+      backgroundColor: 'transparent',
+      chartArea: { left: 48, right: 16, top: 16, bottom: 36, width: '100%', height: '80%' },
+      legend: { position: 'none' },
+      vAxis: { minValue:0, maxValue:100, viewWindow:{min:0,max:100}, gridlines:{ color:'#1f2a44', count:6 }, textStyle:{ color:'#cbd5e1' }, format: '#\'%\'' },
+      hAxis: { textStyle:{ color:'#cbd5e1' }, slantedText:true, slantedTextAngle:30, gridlines:{ color:'#0f152b' } },
+      seriesType: 'area',
+      series: {
+        0: { type:'area', color:'#22c55e', areaOpacity:0.15, lineWidth:3, pointSize:5 },
+        1: { type:'line', color:'#f59e0b', lineWidth:2, lineDashStyle:[6,6], pointSize:0 }
+      },
+      tooltip: { isHtml:true, trigger:'focus', textStyle:{ color:'#e6edf7' } }
+    };
+    host.innerHTML = '';
+    new google.visualization.ComboChart(host).draw(data, options);
+  }
+
+  /* ---------- Main renderer (unchanged visuals) ---------- */
+  function renderKPI(d){
+    const noData = !d || (!d.rows || d.rows.length === 0);
+    document.getElementById('kpiNoData').style.display = noData ? 'block' : 'none';
+    document.getElementById('kpi-cards').style.display = noData ? 'none' : '';
+    document.getElementById('kpi-sla-charts').style.display = noData ? 'none' : '';
+    document.getElementById('kpi-per-service').style.display = noData ? 'none' : '';
+    document.getElementById('kpi-extras').style.display = noData ? 'none' : '';
+    if (noData) return;
+
+    document.getElementById('kpiTarget').textContent       = pct(d.targetPct);
+    document.getElementById('kpiPctClosed').textContent    = pct(d.overall.pctClosed);
+    document.getElementById('kpiClosedWithin').textContent = fmt(d.overall.closedWithin);
+    document.getElementById('kpiClosedExceed').textContent = fmt(d.overall.closedExceed);
+    document.getElementById('kpiTotal').textContent        = fmt(d.overall.total);
+
+    ChartLoader.ready().then(() => {
+      ['kpiRing','kpiOpenDonut','kpiServiceBar','kpiTrend','kpiClosedOpen','kpiTatHist'].forEach(id=>{
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = '';
+      });
+
+      const achieved = Math.max(0, Math.min(100, d.overall.pctClosed));
+      const remain   = Math.max(0, 100 - achieved);
+      const ringData = google.visualization.arrayToDataTable([['Label','Value'], ['%Closed', achieved], ['Remaining', remain]]);
+      const ringColor = colorForPct(achieved, d.targetPct);
+      const ringOpt = { pieHole:0.7, legend:'none', pieSliceText:'none', slices:{0:{color:ringColor},1:{color:'#1f2a44'}}, chartArea:{width:'90%',height:'90%'}, backgroundColor:'transparent' };
+      new google.visualization.PieChart(document.getElementById('kpiRing')).draw(ringData, ringOpt);
+      document.getElementById('kpiRingLbl').textContent =
+        achieved >= d.targetPct ? 'SLA vs Target — On Track' :
+        (achieved >= d.targetPct - 5 ? 'SLA vs Target — Near Target' : 'SLA vs Target — Below Target');
+
+      const openData = google.visualization.arrayToDataTable([
+        ['State','Count'],
+        ['Open within SLA', d.overall.openWithin || 0],
+        ['Open exceed SLA', d.overall.openExceed || 0],
+        ['Newly Opened',    d.overall.newlyOpened || 0]
+      ]);
+      const openOpt = { pieHole:0.55, legend:{ position:'right', textStyle:{ color:'#cbd5e1' } },
+        slices:{ 0:{color:'#60a5fa'}, 1:{color:'#f59e0b'}, 2:{color:'#94a3b8'} },
+        chartArea:{ width:'90%', height:'80%' }, backgroundColor:'transparent' };
+      new google.visualization.PieChart(document.getElementById('kpiOpenDonut')).draw(openData, openOpt);
+
+      const barHead = ['Service', '%Closed', { role:'style' }];
+      const barRows = (d.services || []).map(s => [s.service, s.pctClosed, colorForPct(s.pctClosed, d.targetPct)]);
+      const svcData = google.visualization.arrayToDataTable([barHead, ...barRows]);
+      const barOpt = { legend:'none', hAxis:{ minValue:0, maxValue:100, textStyle:{ color:'#cbd5e1' } }, vAxis:{ textStyle:{ color:'#cbd5e1' } },
+        chartArea:{ width:'80%', height:'80%' }, backgroundColor:'transparent', bars:'horizontal' };
+      new google.charts.Bar(document.getElementById('kpiServiceBar')).draw(svcData, google.charts.Bar.convertOptions(barOpt));
+
+      if (d.trend && d.trend.length) drawSlaTrend(d.trend, d.targetPct);
+      else document.getElementById('kpiTrend').innerHTML = '<div style="color:#9aa2b2;text-align:center;padding:12px;">No trend data.</div>';
+
+      const coData = google.visualization.arrayToDataTable([
+        ['State', 'Count', { role:'style' }],
+        ['Closed', d.overall.closedWithin + d.overall.closedExceed, '#22c55e'],
+        ['Open',   d.overall.openWithin   + d.overall.openExceed,   '#60a5fa']
+      ]);
+      const coOpt = { legend:'none', vAxis:{ minValue:0, textStyle:{ color:'#cbd5e1' } }, hAxis:{ textStyle:{ color:'#cbd5e1' } },
+        chartArea:{ width:'80%', height:'75%' }, backgroundColor:'transparent' };
+      new google.visualization.ColumnChart(document.getElementById('kpiClosedOpen')).draw(coData, coOpt);
+
+      if (d.tatBins && d.tatBins.length){
+        const histData = google.visualization.arrayToDataTable([['Bucket','Count',{role:'style'}], ...d.tatBins.map(b => [b.label, b.count, '#94a3b8'])]);
+        const histOpt = { legend:'none', vAxis:{ minValue:0, textStyle:{ color:'#cbd5e1' } }, hAxis:{ textStyle:{ color:'#cbd5e1' } },
+          chartArea:{ width:'80%', height:'75%' }, backgroundColor:'transparent' };
+        new google.visualization.ColumnChart(document.getElementById('kpiTatHist')).draw(histData, histOpt);
+      } else {
+        document.getElementById('kpiTatHist').innerHTML = '<div style="color:#9aa2b2;text-align:center;padding:12px;">No TAT data.</div>';
+      }
+    });
+
+    const svcList = document.getElementById('kpiSvcList');
+    svcList.innerHTML = '';
+    (d.services || []).forEach(s => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;';
+      row.innerHTML = `
+        <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#e6edf7;">${s.service}</div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="color:#9aa2b2;font-size:.9rem;">${fmt(s.total)}</div>
+          <div style="width:110px;height:8px;border-radius:999px;background:#0b1020;overflow:hidden;border:1px solid #1f2a44;">
+            <div style="height:100%;width:${Math.min(100, s.pctClosed).toFixed(0)}%;background:${colorForPct(s.pctClosed, d.targetPct)};"></div>
+          </div>
+          <div style="min-width:48px;text-align:right;font-weight:700;">${s.pctClosed.toFixed(0)}%</div>
+        </div>`;
+      svcList.appendChild(row);
+    });
+    document.getElementById('kpiSvcCount').textContent = `${(d.services||[]).length} services`;
+
+    const tbody = document.getElementById('kpiRows');
+    tbody.innerHTML = '';
+    (d.rows || []).forEach(r => {
+      const tr = document.createElement('tr');
+      const col = colorForPct(r.pctClosed, d.targetPct);
+      tr.innerHTML = `
+        <td>${r.service}</td>
+        <td>${r.step}</td>
+        <td>${fmt(r.closedExceed)}</td>
+        <td>${fmt(r.closedWithin)}</td>
+        <td>${fmt(r.openExceed)}</td>
+        <td>${fmt(r.openWithin)}</td>
+        <td>${fmt(r.newlyOpened)}</td>
+        <td>${fmt(r.total)}</td>
+        <td>${fmt(r.reminderNotice)}</td>
+        <td>${fmt(r.excessCount)}</td>
+        <td>${fmt(r.minorTerminal)}</td>
+        <td style="color:${col};font-weight:700">${r.pctClosed.toFixed(2)}%</td>`;
+      tbody.appendChild(tr);
+    });
+
+    const view = (document.getElementById('kpiView')?.value || 'SLA').toUpperCase();
+    const showSLA = view === 'SLA' || view === 'KPI';
+    const showKPI = view === 'KPI' || view === 'KPA';
+    document.getElementById('kpi-sla-charts').style.display = showSLA ? '' : 'none';
+    document.getElementById('kpi-per-service').style.display = showKPI ? '' : 'none';
+    document.getElementById('kpi-extras').style.display = '';
+  }
+
+  /* ---------- Fetch (passes Company + date range) ---------- */
+  let __lastPayload = null;
+  let __redrawTimer = null;
+  let __debounce = null;
+  let __bootedVisible = false;
+
+  async function fetchKPIReport(){
+    const loading = document.getElementById('kpiLoading');
+    const btn = document.getElementById('kpiRefresh');
+    loading.style.display = 'block';
+    if (btn) btn.disabled = true;
+
+    try{
+      const company = ((document.getElementById('kpiCompany')?.value || 'ALL').trim() || 'ALL').toUpperCase();
+
+      const filters = { company };
+      if (__fromISO) filters.startDate = __fromISO;
+      if (__toISO)   filters.endDate   = __toISO;
+
+      let payload;
+      try { payload = await call('getKPIReportDataV3', filters); }
+      catch(_) { try { payload = await call('getKPIReportDataV2', filters); } catch(_) { payload = await call('getKPIReportData', filters); } }
+
+      __lastPayload = payload || null;
+      renderKPI(__lastPayload);
+    } catch(e){
+      showErr(e.message || e);
+    } finally {
+      loading.style.display = 'none';
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  function applyFilters(){ clearTimeout(__debounce); __debounce = setTimeout(fetchKPIReport, 120); }
+  async function refreshKpiData(){ await fetchKPIReport(); }
+
+  /* ---------- Presets ---------- */
+  function applyPreset(key){
+    const t = todayISO();
+    let f = t, to = t;
+    switch (key) {
+      case 'today': f = t; to = t; break;
+      case 'yesterday': f = addDaysISO(t, -1); to = addDaysISO(t, -1); break;
+      case 'thisweek': f = startOfWeekISO(t); to = t; break;
+      case 'last7': f = addDaysISO(t, -6); to = t; break;
+      case 'thismonth': f = firstOfThisMonthISO(); to = lastOfThisMonthISO(); break;
+      case 'lastmonth': {
+        const firstThis = firstOfThisMonthISO();
+        const [y,m] = firstThis.split('-').map(Number);
+        const prevY = m === 1 ? y-1 : y;
+        const prevM = m === 1 ? 12 : (m-1);
+        f = `${prevY}-${pad2(prevM)}-01`;
+        to = endOfMonthISO(f);
+        break;
+      }
+      default:
+        // custom opens the calendar for 'from'
+        openCalendar('from');
+        return;
+    }
+    setRangeISO(f, to, true);
+  }
+
+  /* ---------- Range setters + persistence ---------- */
+  function setRangeISO(f, t, persist){
+    // enforce From ≤ To
+    if (f && t && f > t) { const tmp = f; f = t; t = tmp; }
+
+    __fromISO = f; __toISO = t;
+    document.getElementById('lblFrom').textContent = fmtLabel(__fromISO);
+    document.getElementById('lblTo').textContent   = fmtLabel(__toISO);
+
+    if (persist) { try { call('saveKpiRange', { fromISO:__fromISO, toISO:__toISO }); } catch(_){} }
+    applyFilters();
+  }
+
+  async function bootSavedRange(){
+    try {
+      const pref = await call('getSavedKpiRange');
+      const f = (pref && pref.fromISO) || firstOfThisMonthISO();
+      const t = (pref && pref.toISO)   || lastOfThisMonthISO();
+      setRangeISO(f, t, false);
+    } catch(_) {
+      setRangeISO(firstOfThisMonthISO(), lastOfThisMonthISO(), false);
+    }
+  }
+
+  /* ---------- Calendar overlay ---------- */
+  function openCalendar(mode){
+    __calMode = mode === 'to' ? 'to' : 'from';
+    const anchor = __calMode === 'to' ? (__toISO || todayISO()) : (__fromISO || todayISO());
+    const [y,m,d] = anchor.split('-').map(Number);
+    __calYear = y; __calMonth = m; __calFocusISO = anchor;
+
+    renderCalendar();
+    const mask = document.getElementById('kpiCal');
+    mask.classList.add('open');
+    document.getElementById('calApply').disabled = false;
+    __calOpen = true;
+
+    const sel = document.querySelector('.cal-day.sel') || document.querySelector('.cal-day[data-iso]');
+    if (sel) sel.focus();
+  }
+  function closeCalendar(){ document.getElementById('kpiCal').classList.remove('open'); __calOpen = false; }
+
+  function renderCalendar(){
+    const title = new Date(Date.UTC(__calYear, __calMonth-1, 12)).toLocaleDateString('en-US', { month:'long', year:'numeric' });
+    document.getElementById('calTitle').textContent = title;
+
+    const daysWrap = document.getElementById('calDays');
+    daysWrap.innerHTML = '';
+
+    const firstOfMonth = new Date(Date.UTC(__calYear, __calMonth-1, 1));
+    const firstWeekday = firstOfMonth.getUTCDay();
+    const startDate = new Date(Date.UTC(__calYear, __calMonth-1, 1 - firstWeekday, 12));
+
+    for (let i=0;i<42;i++){
+      const dt = new Date(startDate.getTime() + i*86400000);
+      const y = dt.getUTCFullYear(), m = dt.getUTCMonth()+1, d = dt.getUTCDate();
+      const iso = `${y}-${pad2(m)}-${pad2(d)}`;
+
+      const div = document.createElement('button');
+      div.type = 'button';
+      div.className = 'cal-day';
+      div.setAttribute('data-iso', iso);
+      div.setAttribute('tabindex', '-1');
+      if (m !== __calMonth) div.classList.add('muted');
+
+      const inRange = (__fromISO && __toISO && iso >= __fromISO && iso <= __toISO);
+      if (inRange) div.classList.add('range');
+
+      const isSel = (__calMode === 'from' ? (iso === __fromISO) : (iso === __toISO));
+      if (isSel) { div.classList.add('sel'); div.setAttribute('tabindex', '0'); }
+
+      div.textContent = d;
+
+      div.addEventListener('click', () => selectCalendarDay(iso));
+      div.addEventListener('keydown', (e) => {
+        const key = e.key;
+        if (key === 'Enter') { selectCalendarDay(iso); e.preventDefault(); return; }
+        let delta = 0;
+        if (key === 'ArrowLeft') delta = -1;
+        else if (key === 'ArrowRight') delta = 1;
+        else if (key === 'ArrowUp') delta = -7;
+        else if (key === 'ArrowDown') delta = 7;
+        else if (key === 'PageUp') { navCal(-1); return; }
+        else if (key === 'PageDown') { navCal(1); return; }
+        else if (key === 'Escape') { closeCalendar(); return; }
+        if (delta !== 0){
+          const nextIso = addDaysISO(iso, delta);
+          moveFocusTo(nextIso);
+        }
+      });
+
+      daysWrap.appendChild(div);
+    }
+    document.getElementById('calHint').textContent = __calMode === 'from' ? 'Select start date' : 'Select end date';
+  }
+
+  function moveFocusTo(iso){
+    const [y,m] = iso.split('-').map(Number);
+    if (y !== __calYear || m !== __calMonth){
+      __calYear = y; __calMonth = m; renderCalendar();
+    }
+    const el = document.querySelector(`.cal-day[data-iso="${iso}"]`);
+    if (el) el.focus();
+  }
+
+  function selectCalendarDay(iso){
+    if (__calMode === 'from'){
+      let f = iso, t = __toISO;
+      if (t && f > t) t = f;
+      setRangeISO(f, t, true);
+    } else {
+      let f = __fromISO, t = iso;
+      if (f && f > t) f = t;
+      setRangeISO(f, t, true);
+    }
+    renderCalendar();
+  }
+
+  function navCal(deltaMonths){
+    const d0 = new Date(Date.UTC(__calYear, __calMonth-1, 15));
+    d0.setUTCMonth(d0.getUTCMonth()+deltaMonths);
+    __calYear = d0.getUTCFullYear(); __calMonth = d0.getUTCMonth()+1;
+    renderCalendar();
+  }
+
+  (function bindCalendar(){
+    document.getElementById('btnFrom').addEventListener('click', ()=> openCalendar('from'));
+    document.getElementById('btnTo').addEventListener('click', ()=> openCalendar('to'));
+    document.getElementById('calClose').addEventListener('click', closeCalendar);
+    document.getElementById('calPrev').addEventListener('click', ()=> navCal(-1));
+    document.getElementById('calNext').addEventListener('click', ()=> navCal(1));
+    document.getElementById('calToday').addEventListener('click', ()=>{
+      const t = todayISO();
+      if (__calMode === 'from') setRangeISO(t, __toISO, true); else setRangeISO(__fromISO, t, true);
+      const [y,m] = t.split('-').map(Number);
+      __calYear = y; __calMonth = m; renderCalendar();
+    });
+    document.getElementById('calApply').addEventListener('click', closeCalendar);
+    document.getElementById('kpiCal').addEventListener('click', (e)=>{ if (e.target.id === 'kpiCal') closeCalendar(); });
+    document.addEventListener('keydown', (e)=>{ if (__calOpen && e.key === 'Escape') closeCalendar(); });
+  })();
+
+  /* ---------- Preset menu ---------- */
+  (function bindPresets(){
+    const btn = document.getElementById('btnPresets');
+    const menu = document.getElementById('presetMenu');
+    function toggle(){ const open=!menu.classList.contains('open'); menu.classList.toggle('open', open); btn.setAttribute('aria-expanded', open?'true':'false'); }
+    btn.addEventListener('click', (e)=>{ e.stopPropagation(); toggle(); });
+    document.addEventListener('click', ()=> menu.classList.remove('open'));
+
+    menu.querySelectorAll('.preset-item').forEach(it=>{
+      it.addEventListener('click', (e)=>{ const k = it.getAttribute('data-preset'); applyPreset(k); menu.classList.remove('open'); });
+      it.addEventListener('keydown', (e)=>{ if (e.key==='Enter'){ const k = it.getAttribute('data-preset'); applyPreset(k); menu.classList.remove('open'); }});
+    });
+  })();
+
+  /* ---------- Visibility-aware bootstrap ---------- */
+  function tabIsVisible(){
+    const host = document.getElementById('tab-kpis');
+    return host && host.classList.contains('active');
+  }
+  async function bootWhenVisible(){
+    if (__bootedVisible) return;
+    if (!tabIsVisible()) return;
+    __bootedVisible = true;
+
+    try{
+      document.getElementById('kpiLoading').style.display = 'block';
+
+      ['kpiCompany','kpiView'].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('input', applyFilters);
+        el.addEventListener('change', applyFilters);
+        el.addEventListener('keydown', e => { if (e.key === 'Enter') applyFilters(); });
+      });
+
+      const coSel = document.getElementById('kpiCompany');
+      if (coSel) coSel.value = 'ALL';
+
+      await ChartLoader.ready();
+      await bootSavedRange();   // loads last or default (This Month)
+      await fetchKPIReport();
+
+      window.addEventListener('resize', () => {
+        clearTimeout(__redrawTimer);
+        __redrawTimer = setTimeout(() => { if (__lastPayload) renderKPI(__lastPayload); }, 150);
+      });
+    } catch(e){
+      showErr(e.message || e);
+      document.getElementById('kpiLoading').style.display = 'none';
+    }
+  }
+
+  setTimeout(bootWhenVisible, 0);
+  window.addEventListener('tab-activated', (e) => {
+    if (e && e.detail === 'tab-kpis') bootWhenVisible();
+  });
+
+  /* Fallback 'call' helper if not provided globally */
+  if (typeof window.call !== 'function'){
+    window.call = function(fn, arg){
+      return new Promise((resolve,reject)=>{
+        const runner = google.script.run
+          .withSuccessHandler(resolve)
+          .withFailureHandler(err=>reject(err && err.message ? new Error(err.message) : err));
+        (arg === undefined) ? runner[fn]() : runner[fn](arg);
+      });
+    };
+  }
+</script>

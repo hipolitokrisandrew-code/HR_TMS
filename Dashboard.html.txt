@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <?!= include('Includes'); ?>
+  <title>Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+
+  <!-- Adapted visual style from Login page -->
+  <style>
+    /* Background & page frame (mirrors Login page vibe) */
+    body {
+      min-height: 100vh;
+      background:
+        radial-gradient(60% 60% at 20% 20%, rgba(59, 130, 246, .12), transparent 50%),
+        radial-gradient(60% 60% at 80% 20%, rgba(16, 185, 129, .12), transparent 50%),
+        radial-gradient(60% 60% at 50% 80%, rgba(99, 102, 241, .12), transparent 50%),
+        var(--bg, #0b1020);
+      padding: 24px;
+    }
+
+    /* Wrap + card, matching Login’s glassy card */
+    .dash-wrap {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .dash-card {
+      backdrop-filter: blur(6px);
+      background: rgba(15, 21, 43, .9);
+      border: 1px solid var(--border, #1f2a44);
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: 0 10px 35px rgba(0,0,0,.35);
+      transition: transform .2s ease;
+    }
+    .dash-card:focus-within { transform: translateY(-2px); }
+
+    /* Header */
+    .dash-header {
+      display:flex;justify-content:space-between;align-items:center;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(148,163,184,.15);
+      margin-bottom: 12px;
+    }
+    .brand {
+      display:flex;align-items:center;gap:12px;
+    }
+    .brand-mark {
+      width: 32px; height: 32px; border-radius: 10px;
+      background: linear-gradient(135deg, #60a5fa, #22c55e);
+      box-shadow: 0 6px 16px rgba(34, 197, 94, .25);
+      flex: 0 0 auto;
+    }
+    h2 {
+      margin: 0;
+      font-size: 1.15rem;
+      letter-spacing: .2px;
+    }
+    .usercluster {
+      display:flex;align-items:center;gap:10px;
+      color:#cbd5e1;
+    }
+    .btn.ghost {
+      background: transparent;
+      border: 1px solid rgba(148,163,184,.35);
+      color: #e2e8f0;
+      padding: 6px 10px;
+      border-radius: 10px;
+      cursor: pointer;
+    }
+    .btn.ghost:hover { background: rgba(255,255,255,.05); }
+
+    /* Tabs */
+    .tabs {
+      display:flex;
+      gap:8px;
+      flex-wrap: wrap;
+      margin: 12px 0 6px;
+    }
+    .tab {
+      appearance: none;
+      border: 1px solid rgba(148,163,184,.25);
+      background: rgba(255,255,255,.02);
+      color: #e2e8f0;
+      padding: 8px 12px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: .95rem;
+      transition: background .15s ease, border-color .15s ease, transform .05s ease;
+    }
+    .tab:hover { background: rgba(255,255,255,.05); }
+    .tab:active { transform: translateY(1px); }
+    .tab.active {
+      border-color: rgba(99,102,241,.6);
+      background: linear-gradient(180deg, rgba(99,102,241,.2), rgba(99,102,241,.08));
+      box-shadow: 0 4px 16px rgba(99,102,241,.18) inset;
+    }
+
+    /* Panels */
+    .tabpage { display: none; }
+    .tabpage.active { display: block; }
+
+    /* Minor helper text areas */
+    #placeholder, #userInfo, pre#info {
+      color:#94a3b8;
+    }
+
+    /* Container compatibility: keep your original .container, but it now lives inside .dash-card */
+    .container { padding: 0; }
+  </style>
+</head>
+
+<body>
+  <div class="dash-wrap">
+    <div class="dash-card">
+      <div class="container">
+        <!-- Top header (adapted styling) -->
+        <div class="dash-header">
+          <div class="brand">
+            <div class="brand-mark" aria-hidden="true"></div>
+            <h2>People & Culture Web App</h2>
+          </div>
+          <div class="usercluster">
+            <span id="bootDot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#22c55e;opacity:.6"></span>
+            <span id="userInfo"></span>
+            <button id="logoutBtn" class="btn ghost" onclick="doLogout()">Logout</button>
+          </div>
+        </div>
+
+        <p id="placeholder" style="display:none">This is the placeholder dashboard. Once authenticated, data will load here.</p>
+        <pre id="info" style="display:none"></pre>
+
+        <!-- Tabs -->
+        <div class="tabs" role="tablist" aria-label="Dashboard sections">
+          <button class="tab active" data-tab="tab-requests" role="tab" aria-selected="true" aria-controls="tab-requests">HR Requests</button>
+          <button class="tab" data-tab="tab-concerns" role="tab" aria-selected="false" aria-controls="tab-concerns">Employee Concerns</button>
+          <button class="tab" data-tab="tab-kpis" role="tab" aria-selected="false" aria-controls="tab-kpis">KPI Reports</button>
+          <button class="tab" data-tab="tab-finance" role="tab" aria-selected="false" aria-controls="tab-finance">Finance</button>
+          <button class="tab" data-tab="tab-request-form" role="tab" aria-selected="false" aria-controls="tab-request-form">Request Form</button>
+        </div>
+
+        <!-- Tab pages -->
+        <div id="tab-requests" class="tabpage active" role="tabpanel" aria-labelledby="tab-requests">
+          <?!= include('hrRequest'); ?>
+        </div>
+        <!-- Fixed include name: file is EmployeeConcern.html (singular) -->
+        <div id="tab-concerns" class="tabpage" role="tabpanel" aria-labelledby="tab-concerns"><?!= include('EmployeeConcern'); ?></div>
+        <div id="tab-kpis" class="tabpage" role="tabpanel" aria-labelledby="tab-kpis"><?!= include('KPIReports'); ?></div>
+        <div id="tab-finance" class="tabpage" role="tabpanel" aria-labelledby="tab-finance"><?!= include('Finance'); ?></div>
+        <div id="tab-request-form" class="tabpage" role="tabpanel" aria-labelledby="tab-request-form"><?!= include('RequestForm'); ?></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* --- Tab Controller: reliable, accessible, and conflict-proof --- */
+    (function tabController() {
+      const tabsContainer = document.querySelector('.tabs');
+      const tabs = Array.from(document.querySelectorAll('.tabs .tab'));
+      const pages = Array.from(document.querySelectorAll('.tabpage'));
+      if (!tabsContainer || tabs.length === 0 || pages.length === 0) return;
+
+      function activateTab(btn) {
+        if (!btn) return;
+        const targetId = btn.getAttribute('data-tab');
+        const targetPage = document.getElementById(targetId);
+        if (!targetId || !targetPage) return;
+
+        // Toggle active state on tabs
+        for (const t of tabs) {
+          const isActive = t === btn;
+          t.classList.toggle('active', isActive);
+          t.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        }
+        // Toggle pages
+        for (const p of pages) {
+          const show = p.id === targetId;
+          p.classList.toggle('active', show);
+          if (show) p.removeAttribute('hidden'); else p.setAttribute('hidden', 'true');
+        }
+      }
+
+      // Delegated click handling
+      tabsContainer.addEventListener('click', (evt) => {
+        const btn = evt.target.closest('.tab');
+        if (!btn) return;
+        evt.preventDefault();
+        activateTab(btn);
+        const id = btn.getAttribute('data-tab');
+        if (id) {
+          try { history.replaceState(null, '', `#${id}`); } catch (_) { location.hash = id; }
+        }
+      });
+
+      // Initialize from hash or first active tab
+      function initFromHash() {
+        const hashId = (location.hash || '').replace(/^#/, '');
+        const byHash = tabs.find(t => t.getAttribute('data-tab') === hashId);
+        const byClass = tabs.find(t => t.classList.contains('active'));
+        activateTab(byHash || byClass || tabs[0]);
+      }
+      window.addEventListener('hashchange', () => {
+        const hashId = (location.hash || '').replace(/^#/, '');
+        const btn = tabs.find(t => t.getAttribute('data-tab') === hashId);
+        if (btn) activateTab(btn);
+      });
+      initFromHash();
+    })();
+
+    // Utility: show a minimal login call-to-action if we detect auth issues
+    function showLoginCTA(msg) {
+      try {
+        const ph = document.getElementById('placeholder');
+        if (ph) {
+          ph.style.display = 'block';
+          ph.textContent = msg || 'You are not signed in. Please log in to continue.';
+        }
+        // Add a lightweight login button if it doesn't exist
+        if (!document.getElementById('loginBtn')) {
+          const btn = document.createElement('button');
+          btn.id = 'loginBtn';
+          btn.className = 'btn ghost';
+          btn.textContent = 'Log in';
+          btn.style.marginBottom = '10px';
+          btn.onclick = () => {
+            // Ask server for the deployed web app URL and navigate there (top window)
+            google.script.run
+              .withSuccessHandler(url => {
+                try { window.top.location.replace(url); } catch (_) { window.location.href = url; }
+              })
+              .withFailureHandler(() => {
+                // Fallback: force a clean session
+                const base = (window.location.origin + window.location.pathname);
+                window.top.location.replace(base + '?logout=1');
+              })
+              .getWebAppUrl();
+          };
+          const host = document.querySelector('.container') || document.body;
+          host.insertBefore(btn, host.firstChild);
+        }
+      } catch (_) {}
+    }
+
+    // Initial bootstrap (user + services)
+    (async () => {
+      try {
+        bootBusy(true);
+
+        // If forced logout flag is present, give the browser a clean start
+        if (/\blogout=1\b/.test(window.location.search)) {
+          await new Promise(r => setTimeout(r, 50));
+        }
+
+        const lite = await call('getBootstrapDataLight');
+        document.getElementById('userInfo').textContent = lite.user?.email || '';
+        document.getElementById('info').textContent = JSON.stringify(lite, null, 2);
+        setTimeout(() => document.getElementById('info')?.remove(), 150);
+
+        // Let hrRequest fill services into #svc (it calls getProcessSteps when user selects a service)
+        if (document.getElementById('svc')) {
+          const svcSel = document.getElementById('svc');
+          svcSel.innerHTML =
+            '<option value="">Select a service</option>' +
+            (lite.services || []).map(s => `<option>${s}</option>`).join('');
+        }
+
+        bootBusy(false);
+      } catch (e) {
+        bootBusy(false);
+        const msg = String(e && (e.message || e)).toLowerCase();
+
+        // Robust auth detection
+        const looksLikeAuth = /not\s*auth/i.test(msg) || /unauthori[sz]ed/i.test(msg) || /permission/i.test(msg);
+        if (looksLikeAuth) {
+          try {
+            google.script.run
+              .withSuccessHandler(url => {
+                try { window.top.location.replace(url + '?logout=1'); } catch (_) { window.location.href = url + '?logout=1'; }
+              })
+              .withFailureHandler(() => {
+                showLoginCTA('Session expired or not signed in. Click “Log in” to continue.');
+              })
+              .getWebAppUrl();
+          } catch (_) {
+            showLoginCTA('Session expired or not signed in. Click “Log in” to continue.');
+          }
+          return;
+        }
+        // Non-auth errors still get surfaced
+        showErr('Backend Error: ' + (e.message || e));
+      }
+    })();
+
+    // Logout flow (kept as-is, with a small hardening)
+    function doLogout() {
+      const btn = document.getElementById('logoutBtn');
+      if (btn) { btn.disabled = true; btn.textContent = 'Logging out…'; }
+      bootBusy(true);
+      try {
+        google.script.run
+          .withSuccessHandler(url => window.top.location.replace(url + '?logout=1'))
+          .withFailureHandler(() => {
+            const base = (window.location.origin + window.location.pathname);
+            window.top.location.replace(base + '?logout=1');
+          })
+          .getWebAppUrl();
+      } catch (_) {
+        const base = (window.location.origin + window.location.pathname);
+        window.top.location.replace(base + '?logout=1');
+      }
+    }
+  </script>
+</body>
+</html>

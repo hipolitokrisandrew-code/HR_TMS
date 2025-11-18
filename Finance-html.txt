@@ -1,0 +1,11 @@
+<div class="panel">
+  <h3>Finance</h3>
+  <p style="color:#9aa2b2">This is a placeholder for Finance content.</p>
+</div>
+
+<script>
+  async function loadFinance(){
+    // no-op placeholder to satisfy Dashboard.init
+    return;
+  }
+</script>
