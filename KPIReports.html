@@ -380,7 +380,7 @@
         1: { type:'line', color:'#f59e0b', lineWidth:2, lineDashStyle:[6,6], pointSize:0 }
       },
       focusTarget:'category',
-      tooltip: { isHtml:true, trigger:'focus', textStyle:{ color:'#e6edf7' } }
+      tooltip: { trigger:'focus', isHtml:true }
     };
     host.innerHTML = '';
     new google.visualization.ComboChart(host).draw(data, options);
