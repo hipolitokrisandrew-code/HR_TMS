@@ -1,0 +1,234 @@
+<!-- Shared styles + helpers. Included at top of each view via <?!= include('Includes'); ?> -->
+
+<style>
+  :root{
+    --bg:#0b1020; --card:#12172a; --muted:#9aa2b2; --text:#e7ecf4;
+    --green:#22c55e; --blue:#60a5fa; --amber:#f59e0b; --red:#f87171; --softred:#fecaca;
+    --border:#1f2a44; --accent:#1e293b;
+  }
+
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;
+  }
+
+  .container{ max-width:1200px; margin:24px auto; padding:0 16px; }
+  h2{ margin:0; font-weight:650; letter-spacing:.2px; }
+
+  .panel{
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:16px;
+    margin-top:16px;
+  }
+
+  .row{ display:flex; flex-wrap:wrap; gap:16px; align-items:flex-end; }
+  label{ display:block; font-size:.85rem; color:var(--muted); margin-bottom:4px; }
+  input, select{
+    background:#0f152b;
+    color:var(--text);
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:8px 10px;
+    min-width:180px;
+  }
+
+  .btn{
+    background:#2a3455;
+    color:var(--text);
+    border:1px solid var(--border);
+    padding:8px 14px;
+    border-radius:10px;
+    cursor:pointer;
+  }
+  .btn:hover{ filter:brightness(1.08); }
+  .btn.ghost{ background:transparent; }
+
+  .tabs{ display:flex; gap:8px; margin-top:16px; }
+  .tab{
+    background:#141b34;
+    color:var(--text);
+    border:1px solid var(--border);
+    padding:8px 12px;
+    border-radius:10px;
+    cursor:pointer;
+  }
+  .tab.active{ background:#1d2544; border-color:#2a3766; }
+
+  .tabpage{ display:none; margin-top:16px; }
+  .tabpage.active{ display:block; }
+
+  /* ---------- Table Styling ---------- */
+  .tablewrap{
+    margin-top:12px;
+    border:2px solid var(--border);
+    border-radius:12px;
+    overflow:auto;
+    max-height:500px;
+  }
+
+  table.grid{
+    width:100%;
+    border-collapse:collapse;
+  }
+
+  table.grid th{
+    position:sticky;
+    top:0;
+    background:#101735;
+    z-index:1;
+    color:#cbd5e1;
+    font-weight:600;
+    text-align:center;
+    border:1px solid var(--border);
+    padding:10px;
+    font-size:13.5px;
+  }
+
+  table.grid td{
+    border:1px solid var(--border);
+    padding:10px;
+    font-size:13.5px;
+    text-align:center;
+    vertical-align:middle;
+    color:#e6edf7;
+  }
+
+  tr:nth-child(even) td{ background:#0e1530; }
+  tr:hover td{ background:#121a3a; }
+
+  /* Button label colors (aligned with your palette) */
+  #startBtn{ background:var(--blue);    color:#0b1020; }
+  #pauseBtn{ background:var(--amber);   color:#1a0f00; }
+  #resumeBtn{ background:#8fd3fe;       color:#05101f; }
+  #endBtn{   background:var(--softred); color:#250b0b; }
+
+  .loading{
+    display:none;
+    font-size:14px;
+    color:var(--green);
+    font-weight:600;
+    text-align:center;
+    margin-top:12px;
+  }
+
+  input.search-bar{
+    width:100%;
+    padding:8px;
+    border:1px solid var(--border);
+    border-radius:8px;
+    background:#0f152b;
+    color:var(--text);
+    text-align:center;
+  }
+
+  /* Start / Pause / Resume / End column colors */
+  table.grid th:nth-child(6), table.grid td:nth-child(6) { color: var(--blue);    font-weight:600; }
+  table.grid th:nth-child(7), table.grid td:nth-child(7) { color: var(--amber);   font-weight:600; }
+  table.grid th:nth-child(8), table.grid td:nth-child(8) { color: #8fd3fe;        font-weight:600; }
+  table.grid th:nth-child(9), table.grid td:nth-child(9) { color: var(--softred); font-weight:600; }
+
+  /* Status color classes (applied dynamically) */
+  table.grid td.st-inprogress { color: var(--blue);    font-weight:700; }
+  table.grid td.st-paused     { color: var(--amber);   font-weight:700; }
+  table.grid td.st-resumed    { color: #8fd3fe;        font-weight:700; }
+  table.grid td.st-completed  { color: var(--softred); font-weight:700; }
+</style>
+
+<script>
+  // $ helper
+  const $ = (s, r) => (r || document).querySelector(s);
+
+  // Promise wrapper for google.script.run (repaired structure)
+  function call(fnName, ...args){
+    return new Promise((resolve, reject)=>{
+      try{
+        const name = String(fnName || '').trim();
+        const runner = google.script.run
+          .withSuccessHandler(resolve)
+          .withFailureHandler(reject);
+        if (typeof runner[name] !== 'function') {
+          return reject(new Error('Server function not found or invalid name: ' + name));
+        }
+        runner[name](...args);
+      }catch(e){ reject(e); }
+    });
+  }
+
+  // Error toast with close (✖) button
+  function showErr(message){
+    console.error(message);
+    let box = document.getElementById('err');
+    if(!box){
+      box = document.createElement('div');
+      box.id = 'err';
+      box.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: #3a0a0a;
+        color: #fecaca;
+        border: 1px solid #7a1c1c;
+        padding: 12px 40px 12px 12px;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        z-index: 9999;
+        max-width: 350px;
+        font-weight: 500;
+        line-height: 1.4;
+      `;
+      document.body.appendChild(box);
+    }
+    box.innerHTML = `
+      ${String(message || 'Error')}
+      <span style="position:absolute; top:6px; right:8px; cursor:pointer; font-weight:bold; color:#fecaca; font-size:16px;"
+            onclick="this.parentElement.remove()">✖</span>`;
+    box.style.display = 'block';
+  }
+
+  // Boot dot (loading indicator)
+  function bootBusy(on){
+    const d = document.getElementById('bootDot');
+    if(d) d.style.opacity = on ? '1' : '.2';
+  }
+
+  // Tabs (top-level Dashboard only)
+  document.addEventListener('click', (ev)=>{
+    const btn = ev.target.closest('.tab');
+    if(!btn || !btn.dataset.tab) return;
+    document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.tabpage').forEach(p=>p.classList.remove('active'));
+    btn.classList.add('active');
+    const tp = document.getElementById(btn.dataset.tab);
+    if(tp) tp.classList.add('active');
+  });
+
+  // Status color applier (pure styling)
+  function __colorizeStatusCells__(){
+    const tbody = document.getElementById('logs');
+    if (!tbody) return;
+    const rows = tbody.querySelectorAll('tr');
+    rows.forEach(tr => {
+      const cells = tr.cells;
+      if (!cells || cells.length < 12) return;
+      const statusCell = cells[11]; // 12th column
+      const statusText = (statusCell.textContent || '').trim().toLowerCase();
+      statusCell.classList.remove('st-inprogress','st-paused','st-resumed','st-completed');
+      if (statusText === 'in progress')  statusCell.classList.add('st-inprogress');
+      else if (statusText === 'paused')  statusCell.classList.add('st-paused');
+      else if (statusText === 'resumed') statusCell.classList.add('st-resumed');
+      else if (statusText === 'completed') statusCell.classList.add('st-completed');
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const tbody = document.getElementById('logs');
+    if (tbody) {
+      __colorizeStatusCells__();
+      const mo = new MutationObserver(() => __colorizeStatusCells__());
+      mo.observe(tbody, { childList:true, subtree:true, characterData:true });
+    }
+  });
+</script>
