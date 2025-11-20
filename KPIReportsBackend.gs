@@ -527,7 +527,7 @@ function __kpi_buildTrendAndTat__(filters, targetPct) {
 // Public APIs (V2)
 // -----------------------------------------------------
 function getKPIReportDataV2Backend(filters) {
-  requireAuth();
+  requireRoleAccess_('tab-kpis');
   const ss = getActiveSpreadsheet_();
   const f  = Object.assign({}, filters || {});
   const rows = __kpi_buildServiceStep__(ss, f);
@@ -620,7 +620,7 @@ function getKPIReportDataV2Backend(filters) {
 // Public API (V3) — mirrors HR Request TMS data
 // -----------------------------------------------------
 function getKPIReportDataV3Backend(filters) {
-  requireAuth();
+  requireRoleAccess_('tab-kpis');
 
   const f = Object.assign({}, filters || {});
 

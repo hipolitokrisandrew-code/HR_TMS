@@ -154,12 +154,62 @@
   </div>
 
   <script>
+    function normalizeRole(role){ return String(role||'').trim().toLowerCase(); }
+    function tabsAllowedForRole(role, serverList){
+      if (Array.isArray(serverList) && serverList.length) return serverList.slice();
+      const r = normalizeRole(role);
+      return (r === 'limited access')
+        ? ['tab-request-form','tab-concerns']
+        : ['tab-requests','tab-concerns','tab-kpis','tab-finance','tab-request-form'];
+    }
+
+    function applyRoleBasedTabs(role, allowedFromServer){
+      const allowedTabs = tabsAllowedForRole(role, allowedFromServer);
+      const tabButtons = Array.from(document.querySelectorAll('.tabs .tab'));
+      const tabPages   = Array.from(document.querySelectorAll('.tabpage'));
+
+      tabButtons.forEach(btn => {
+        const id = btn.getAttribute('data-tab');
+        const ok = allowedTabs.includes(id);
+        btn.dataset.allowed = ok ? '1' : '0';
+        btn.setAttribute('aria-disabled', ok ? 'false' : 'true');
+        btn.disabled = !ok;
+        btn.style.display = ok ? '' : 'none';
+      });
+
+      tabPages.forEach(pg => {
+        const ok = allowedTabs.includes(pg.id);
+        if (!ok) {
+          pg.classList.remove('active');
+          pg.setAttribute('hidden', 'true');
+          pg.style.display = 'none';
+        } else {
+          pg.style.display = '';
+          pg.removeAttribute('hidden');
+        }
+      });
+
+      const allowedButtons = tabButtons.filter(btn => allowedTabs.includes(btn.getAttribute('data-tab')));
+      const current = allowedButtons.find(btn => btn.classList.contains('active')) || allowedButtons[0];
+      if (current) {
+        current.dispatchEvent(new Event('click', { bubbles:true }));
+      }
+
+      const hashId = (location.hash || '').replace(/^#/, '');
+      if (hashId && !allowedTabs.includes(hashId) && allowedButtons.length) {
+        const fallback = allowedButtons[0].getAttribute('data-tab');
+        try { history.replaceState(null, '', `#${fallback}`); } catch (_) { location.hash = fallback; }
+      }
+    }
+
     /* --- Tab Controller: reliable, accessible, and conflict-proof --- */
     (function tabController() {
       const tabsContainer = document.querySelector('.tabs');
       const tabs = Array.from(document.querySelectorAll('.tabs .tab'));
       const pages = Array.from(document.querySelectorAll('.tabpage'));
       if (!tabsContainer || tabs.length === 0 || pages.length === 0) return;
+
+      const canUseTab = (btn) => btn && btn.getAttribute('aria-disabled') !== 'true' && btn.dataset.allowed !== '0';
 
       function activateTab(btn) {
         if (!btn) return;
@@ -184,7 +234,7 @@
       // Delegated click handling
       tabsContainer.addEventListener('click', (evt) => {
         const btn = evt.target.closest('.tab');
-        if (!btn) return;
+        if (!btn || !canUseTab(btn)) return;
         evt.preventDefault();
         activateTab(btn);
         const id = btn.getAttribute('data-tab');
@@ -196,13 +246,14 @@
       // Initialize from hash or first active tab
       function initFromHash() {
         const hashId = (location.hash || '').replace(/^#/, '');
-        const byHash = tabs.find(t => t.getAttribute('data-tab') === hashId);
-        const byClass = tabs.find(t => t.classList.contains('active'));
-        activateTab(byHash || byClass || tabs[0]);
+        const usableTabs = tabs.filter(canUseTab);
+        const byHash = usableTabs.find(t => t.getAttribute('data-tab') === hashId);
+        const byClass = usableTabs.find(t => t.classList.contains('active'));
+        activateTab(byHash || byClass || usableTabs[0]);
       }
       window.addEventListener('hashchange', () => {
         const hashId = (location.hash || '').replace(/^#/, '');
-        const btn = tabs.find(t => t.getAttribute('data-tab') === hashId);
+        const btn = tabs.find(t => t.getAttribute('data-tab') === hashId && canUseTab(t));
         if (btn) activateTab(btn);
       });
       initFromHash();
@@ -256,6 +307,8 @@
         document.getElementById('userInfo').textContent = lite.user?.email || '';
         document.getElementById('info').textContent = JSON.stringify(lite, null, 2);
         setTimeout(() => document.getElementById('info')?.remove(), 150);
+
+        applyRoleBasedTabs(lite.user?.role, lite.allowedTabs);
 
         // Let hrRequest fill services into #svc (it calls getProcessSteps when user selects a service)
         if (document.getElementById('svc')) {
