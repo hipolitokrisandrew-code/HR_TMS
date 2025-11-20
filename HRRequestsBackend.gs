@@ -157,7 +157,7 @@ function getProcessStepsBackend(service) {
  * ========================================== */
 
 function getLogDataBackend() {
-  requireAuth();
+  requireRoleAccess_('tab-requests');
 
   function fromCompany_(ss, companyLabel) {
     if (!ss) return [];
@@ -267,7 +267,7 @@ function getLogDataBackend() {
 }
 
 function getFilteredLogDataBackend(filters) {
-  requireAuth();
+  requireRoleAccess_('tab-requests');
   const rows = getLogDataBackend();
   const f = filters || {};
 
@@ -330,7 +330,7 @@ function findRowInfoByRequestId_(sheet, requestId) {
  * ========================================== */
 
 function logActionBackend(action, requestId, service, processStep, remarks) {
-  requireAuth();
+  requireRoleAccess_('tab-requests');
 
   const lock = LockService.getScriptLock();
   let hasLock = false;
@@ -577,7 +577,7 @@ function logActionBackend(action, requestId, service, processStep, remarks) {
  * ========================================== */
 
 function getActiveRequestsBackend() {
-  requireAuth();
+  requireRoleAccess_('tab-requests');
   const rows = getLogDataBackend();
   const ACTIVE = {
     "open": true,
@@ -618,7 +618,7 @@ function getActiveRequestsBackend() {
 }
 
 function getRequestInfoBackend(requestId) {
-  requireAuth();
+  requireRoleAccess_('tab-requests');
   const id = _normalizeId_(requestId);
   if (!id) return null;
 
