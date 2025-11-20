@@ -777,6 +777,11 @@
       fetchKPIReport();
     }
   });
+  document.addEventListener('click', (e)=>{
+    const tabBtn = e.target.closest('.tab[data-tab="tab-kpis"]');
+    if (tabBtn) setTimeout(bootWhenVisible, 0);
+  });
+  window.addEventListener('hashchange', bootWhenVisible);
 
   /* Fallback 'call' helper if not provided globally */
   if (typeof window.call !== 'function'){

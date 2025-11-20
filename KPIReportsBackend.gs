@@ -3,14 +3,28 @@
  *******************************************************/
 
 // Read rows for current SS or a provided SS
-function __kpi_readTmsRowsForCurrentCompany__(filters){ const ss=getActiveSpreadsheet_(); return __kpi_readTmsRowsForSS__(ss,filters); }
+function __kpi_readTmsRowsForCurrentCompany__(filters){
+  const f=filters||{};
+  const co=String(f.company||'').toUpperCase();
+  const ssMap={ ONWARD:getOnwardSs, ITAM:getItamSs, IREAL:getIrealSs, LATTE:getLatteSs };
+  const getter=ssMap[co];
+  const ss=(typeof getter==='function') ? getter() : getActiveSpreadsheet_();
+  return __kpi_readTmsRowsForSS__(ss,f);
+}
 function __kpi_readTmsRowsForSS__(ss, filters){
   const sh=ss.getSheetByName(CONFIG.SHEETS.TMS);
   const rows=readSheetAsObjects(sh);
   const f=filters||{};
+  const companyRaw=f.company||'';
+  const wantCompany=companyRaw && String(companyRaw).toUpperCase()!=='ALL';
+  const companyKey=String(companyRaw).toUpperCase();
   const startMs=f.startDate?new Date(f.startDate).getTime():null;
   const endMs=f.endDate?(new Date(f.endDate).getTime()+24*60*60*1000-1):null;
   return rows.filter(r=>{
+    if(wantCompany){
+      const rowCo=String(r['Company']||'').toUpperCase();
+      if(rowCo && rowCo!==companyKey) return false;
+    }
     if(!startMs && !endMs) return true;
     const reqMs=r['Request Date']?new Date(r['Request Date']).getTime():null;
     const dueMs=r['Due Date']?new Date(r['Due Date']).getTime():null;
@@ -36,7 +50,7 @@ function __kpi_fromTmsRowsToBuckets__(rows){
     const service=String(r['Service']||'').trim()||'Unspecified';
     const step=String(r['Process Step']||'').trim()||'—';
     const key=service+'|'+step;
-    if(!bucket[key]) bucket[key]={service,step,closedWithin:0,closedExceed:0,openExceed:0,openWithin:0,newlyOpened:0,reminderNotice:0,excessCount:0,minorTerminal:0};
+    if(!bucket[key]) bucket[key]={service,step,total:0,closedWithin:0,closedExceed:0,openExceed:0,openWithin:0,newlyOpened:0,reminderNotice:0,excessCount:0,minorTerminal:0};
 
     const ended=!!(r['End']&&String(r['End']).trim()!=='');
     const reqMs=r['Request Date']?new Date(r['Request Date']).getTime():null;
@@ -46,6 +60,8 @@ function __kpi_fromTmsRowsToBuckets__(rows){
     const deadlineMs=Number.isFinite(dueMs)?dueMs:null;
     const comparisonMs=ended && Number.isFinite(endMs)?endMs:nowMs;
     const isExceed=deadlineMs!=null?comparisonMs>deadlineMs:false;
+
+    bucket[key].total+=1;
 
     if (ended){
       if (isExceed) bucket[key].closedExceed+=1; else bucket[key].closedWithin+=1;
@@ -97,7 +113,8 @@ function __kpi_readSlaBlockFromSummarySheets__(ss){
 function __kpi_enrichFromTmsOnly__(fromTms){
   return (fromTms||[]).map(x=>{
     const totalClosed=(x.closedWithin||0)+(x.closedExceed||0);
-    const totalAll=totalClosed+(x.openWithin||0)+(x.openExceed||0)+(x.newlyOpened||0);
+    const openCount=(x.openWithin||0)+(x.openExceed||0);
+    const totalAll=Number.isFinite(x.total)?x.total:(totalClosed+openCount);
     const pctClosed=totalAll>0?(totalClosed/totalAll)*100:0;
     const reminderNotice=x.reminderNotice||0;
     const excessCount=(x.closedExceed||0)+(x.openExceed||0);
@@ -111,11 +128,11 @@ function __kpi_mergeSheetTotalsWithTms__(fromSheet,fromTms){
   const out=[];
   Object.keys(byService).forEach(service=>{
     const steps=byService[service];
-    const tot=steps.reduce((a,b)=>({closedWithin:a.closedWithin+(b.closedWithin||0),closedExceed:a.closedExceed+(b.closedExceed||0),openExceed:a.openExceed+(b.openExceed||0),openWithin:a.openWithin+(b.openWithin||0),newlyOpened:a.newlyOpened+(b.newlyOpened||0),reminderNotice:a.reminderNotice+(b.reminderNotice||0),excessCount:a.excessCount+(b.excessCount||0),minorTerminal:a.minorTerminal+(b.minorTerminal||0)}),{closedWithin:0,closedExceed:0,openExceed:0,openWithin:0,newlyOpened:0,reminderNotice:0,excessCount:0,minorTerminal:0});
+    const tot=steps.reduce((a,b)=>({closedWithin:a.closedWithin+(b.closedWithin||0),closedExceed:a.closedExceed+(b.closedExceed||0),openExceed:a.openExceed+(b.openExceed||0),openWithin:a.openWithin+(b.openWithin||0),newlyOpened:a.newlyOpened+(b.newlyOpened||0),reminderNotice:a.reminderNotice+(b.reminderNotice||0),excessCount:a.excessCount+(b.excessCount||0),minorTerminal:a.minorTerminal+(b.minorTerminal||0),total:a.total+(b.total||0)}),{closedWithin:0,closedExceed:0,openExceed:0,openWithin:0,newlyOpened:0,reminderNotice:0,excessCount:0,minorTerminal:0,total:0});
     const svcTotals=svcMap[service]||tot;
-    const denom=(tot.closedWithin+tot.closedExceed+tot.openWithin+tot.openExceed+tot.newlyOpened)||1;
+    const denom=(tot.total||0)||(tot.closedWithin+tot.closedExceed+tot.openWithin+tot.openExceed)||1;
     steps.forEach(stp=>{
-      const weight=((stp.closedWithin||0)+(stp.closedExceed||0)+(stp.openWithin||0)+(stp.openExceed||0)+(stp.newlyOpened||0))/denom;
+      const weight=((stp.total||0)||((stp.closedWithin||0)+(stp.closedExceed||0)+(stp.openWithin||0)+(stp.openExceed||0)))/denom;
       const closedWithin=Math.round((svcTotals.closedWithin||0)*weight);
       const closedExceed=Math.round((svcTotals.closedExceed||0)*weight);
       const openExceed=Math.round((svcTotals.openExceed||0)*weight);
@@ -124,7 +141,7 @@ function __kpi_mergeSheetTotalsWithTms__(fromSheet,fromTms){
       const reminderNotice=Math.round((svcTotals.reminderNotice||0)*weight);
       const excessCount=Math.round((svcTotals.excessCount||0)*weight);
       const minorTerminal=Math.round((svcTotals.minorTerminal||0)*weight);
-      const total=closedWithin+closedExceed+openExceed+openWithin+newlyOpened;
+      const total=Math.round((svcTotals.total||0)*weight) || (closedWithin+closedExceed+openExceed+openWithin);
       const pctClosed=total>0?((closedWithin+closedExceed)/total)*100:0;
       out.push({ service, step:stp.step, closedWithin, closedExceed, openExceed, openWithin, newlyOpened, total, reminderNotice, excessCount, minorTerminal, pctClosed:+pctClosed.toFixed(2) });
     });
