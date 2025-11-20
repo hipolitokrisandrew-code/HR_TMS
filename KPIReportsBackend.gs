@@ -3,7 +3,14 @@
  *******************************************************/
 
 // Read rows for current SS or a provided SS
-function __kpi_readTmsRowsForCurrentCompany__(filters){ const ss=getActiveSpreadsheet_(); return __kpi_readTmsRowsForSS__(ss,filters); }
+function __kpi_readTmsRowsForCurrentCompany__(filters){
+  const f=filters||{};
+  const co=String(f.company||'').toUpperCase();
+  const ssMap={ ONWARD:getOnwardSs, ITAM:getItamSs, IREAL:getIrealSs, LATTE:getLatteSs };
+  const getter=ssMap[co];
+  const ss=(typeof getter==='function') ? getter() : getActiveSpreadsheet_();
+  return __kpi_readTmsRowsForSS__(ss,f);
+}
 function __kpi_readTmsRowsForSS__(ss, filters){
   const sh=ss.getSheetByName(CONFIG.SHEETS.TMS);
   const rows=readSheetAsObjects(sh);
