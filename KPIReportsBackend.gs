@@ -4,19 +4,34 @@
 
 // Read rows for current SS or a provided SS
 function __kpi_readTmsRowsForCurrentCompany__(filters){
-  const f=filters||{};
-  const co=String(f.company||'').toUpperCase();
-  const ssMap={ ONWARD:getOnwardSs, ITAM:getItamSs, IREAL:getIrealSs, LATTE:getLatteSs };
-  const getter=ssMap[co];
-  const ss=(typeof getter==='function') ? getter() : getActiveSpreadsheet_();
-  return __kpi_readTmsRowsForSS__(ss,f);
+  const f = Object.assign({}, filters || {});
+  const co = String(f.company || '').toUpperCase();
+  const ssMap = { ONWARD:getOnwardSs, ITAM:getItamSs, IREAL:getIrealSs, LATTE:getLatteSs };
+
+  // Single-company: pick that spreadsheet and skip column-based filtering so rows stay intact.
+  if (co && co !== 'ALL') {
+    const getter = ssMap[co];
+    const ss = (typeof getter === 'function') ? getter() : getActiveSpreadsheet_();
+    const fNoCompany = Object.assign({}, f, { __skipCompanyFilter:true });
+    delete fNoCompany.company;
+    return __kpi_readTmsRowsForSS__(ss, fNoCompany);
+  }
+
+  // ALL: read every known company spreadsheet; fall back to the active file if none exist.
+  const allSs = Object.values(ssMap)
+    .map(fn => (typeof fn === 'function') ? fn() : null)
+    .filter(Boolean);
+  if (!allSs.length) allSs.push(getActiveSpreadsheet_());
+
+  const allFilters = Object.assign({}, f, { __skipCompanyFilter:true });
+  return allSs.flatMap(ss => __kpi_readTmsRowsForSS__(ss, allFilters));
 }
 function __kpi_readTmsRowsForSS__(ss, filters){
   const sh=ss.getSheetByName(CONFIG.SHEETS.TMS);
   const rows=readSheetAsObjects(sh);
   const f=filters||{};
   const companyRaw=f.company||'';
-  const wantCompany=companyRaw && String(companyRaw).toUpperCase()!=='ALL';
+  const wantCompany=!f.__skipCompanyFilter && companyRaw && String(companyRaw).toUpperCase()!=='ALL';
   const companyKey=String(companyRaw).toUpperCase();
   const startMs=f.startDate?new Date(f.startDate).getTime():null;
   const endMs=f.endDate?(new Date(f.endDate).getTime()+24*60*60*1000-1):null;
@@ -203,7 +218,8 @@ function getKPIReportDataV2Backend(filters){
 function getKPIReportDataV3Backend(filters){
   requireAuth();
   const f=Object.assign({},filters||{}); const co=String(f.company||'').toUpperCase(); const wantAll=!co||co==='ALL';
-  const bucketsBySS=(ss)=>__kpi_buildServiceStepForSS__(ss,f);
+  const readFilters= wantAll ? f : Object.assign({},f,{ __skipCompanyFilter:true, company:null });
+  const bucketsBySS=(ss)=>__kpi_buildServiceStepForSS__(ss,readFilters);
   const ssMap={ ONWARD:getOnwardSs(), ITAM:getItamSs(), IREAL:getIrealSs(), LATTE:getLatteSs() };
   const targetPct=95; let rows=[];
   if (wantAll){ rows=[].concat(bucketsBySS(ssMap.ONWARD), bucketsBySS(ssMap.ITAM), bucketsBySS(ssMap.IREAL), bucketsBySS(ssMap.LATTE)); }
@@ -225,7 +241,7 @@ function getKPIReportDataV3Backend(filters){
   const trend=[], tatBins=[];
   try{
     const list= wantAll ? [ssMap.ONWARD, ssMap.ITAM, ssMap.IREAL, ssMap.LATTE] : [(ssMap[co]||getActiveSpreadsheet_())];
-    const allRows=[]; list.forEach(ss=>{ allRows.push.apply(allRows, __kpi_readTmsRowsForSS__(ss,f)); });
+    const allRows=[]; list.forEach(ss=>{ allRows.push.apply(allRows, __kpi_readTmsRowsForSS__(ss,readFilters)); });
     if (allRows.length){
       const startMs=f&&f.startDate?new Date(f.startDate).getTime():null;
       const endMs=f&&f.endDate?(new Date(f.endDate).getTime()+24*60*60*1000-1):null;
