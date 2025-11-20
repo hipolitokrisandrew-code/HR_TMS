@@ -115,6 +115,23 @@ function getSession(){ const raw=PropertiesService.getUserProperties().getProper
 function requireAuth(){ const s=getSession(); if(!s) throw new Error('Not authenticated.'); return s; }
 function getSessionInfoForClient(){ const s=getSession(); if(!s) return null; return { email:s.email, role:s.role, department:s.department, displayName:s.displayName, companyId:s.companyId, companyCode:s.companyCode, accountCode:s.accountCode }; }
 
+/* ---------------- Role-based access helpers ---------------- */
+function normalizeRoleForAccess_(role){ return String(role||'').trim().toLowerCase(); }
+function allowedTabsForRole_(role){
+  const r = normalizeRoleForAccess_(role);
+  if (r === 'limited access') return ['tab-request-form','tab-concerns'];
+  return ['tab-requests','tab-concerns','tab-kpis','tab-finance','tab-request-form'];
+}
+function requireRoleAccess_(featureKey){
+  const session = requireAuth();
+  const allowed = allowedTabsForRole_(session.role);
+  if (featureKey && allowed.indexOf(featureKey) === -1) {
+    throw new Error('Access denied: your role does not permit this action.');
+  }
+  return session;
+}
+function getAllowedTabsForClient(){ const s=requireAuth(); return allowedTabsForRole_(s.role); }
+
 /* ---------------- Company selection + routing ---------------- */
 function canonicalCompany_(company){ const v=String(company||'').trim().toUpperCase(); if(v==='ONWARD')return'Onward'; if(v==='ITAM')return'ITAM'; if(v==='IREAL')return'IREAL'; if(v==='LATTE')return'LATTE'; return 'Onward'; }
 function setCompany(company){ requireAuth(); const cRaw=String(company||'').trim(); const u=cRaw.toUpperCase(); const ok=['ONWARD','ITAM','IREAL','LATTE','Onward','ITAM','IREAL','LATTE']; if(!ok.includes(cRaw)&&!ok.includes(u)) throw new Error('Invalid company selected.'); const c=canonicalCompany_(cRaw); PropertiesService.getUserProperties().setProperty(CONFIG.SELECTED_CO_KEY, c); return {ok:true, company:c}; }
@@ -184,11 +201,12 @@ function getOrCreateUploadFolder_(companyCode){
 }
 
 /* ---------------- App bootstrap helpers ---------------- */
-function getBootstrapDataLight(){ requireAuth(); return { user:getSessionInfoForClient(), services:getServices() }; }
+function getBootstrapDataLight(){ requireAuth(); return { user:getSessionInfoForClient(), services:getServices(), allowedTabs:getAllowedTabsForClient() }; }
 function getBootstrapData(){
   requireAuth();
   return {
     user: getSessionInfoForClient(),
+    allowedTabs: getAllowedTabsForClient(),
     services: getServices(),
     logs: getLogData(),
     concerns: getConcernsData(),
@@ -196,7 +214,7 @@ function getBootstrapData(){
   };
 }
 function getKPIData(){
-  const session = requireAuth();
+  const session = requireRoleAccess_('tab-kpis');
   const role = (session.role||'').toLowerCase();
   const email = (session.email||'').toLowerCase();
   const dept  = (session.department||'').toLowerCase();

@@ -121,8 +121,10 @@ function getConcernsDataActiveCompanyBackend(opts) {
     : '';
 
   // Reuse unified TMS log data (same as HR Request table).
+  // Do *not* enforce HR Request tab access so Limited Access users can
+  // still see concerns data even if HR Request UI is hidden.
   var rows = (typeof getLogDataBackend === 'function')
-    ? getLogDataBackend()
+    ? getLogDataBackend(false)
     : [];
 
   if (!Array.isArray(rows) || !rows.length) {

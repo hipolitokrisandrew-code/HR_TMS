@@ -156,67 +156,68 @@ function getProcessStepsBackend(service) {
  * HR Request table and Request ID dropdowns)
  * ========================================== */
 
-function getLogDataBackend() {
-  requireAuth();
+function fromCompany_(ss, companyLabel) {
+  if (!ss) return [];
+  const sh = ss.getSheetByName(CONFIG.SHEETS.TMS);
+  if (!sh) return [];
 
-  function fromCompany_(ss, companyLabel) {
-    if (!ss) return [];
-    const sh = ss.getSheetByName(CONFIG.SHEETS.TMS);
-    if (!sh) return [];
+  // Read both raw values and display values
+  const range         = sh.getDataRange();
+  const displayValues = range.getDisplayValues();
+  const rawValues     = range.getValues();
+  if (!displayValues.length) return [];
+  const header      = displayValues[0] || [];
+  const headerLower = header.map(h => String(h || "").trim().toLowerCase());
 
-    // Read both raw values and display values
-    const range         = sh.getDataRange();
-    const displayValues = range.getDisplayValues();
-    const rawValues     = range.getValues();
-    if (!displayValues.length) return [];
-    const header      = displayValues[0] || [];
-    const headerLower = header.map(h => String(h || "").trim().toLowerCase());
-
-    // Helper: find index of a canonical key using alias mapping
-    function findAliasIdx(canonKey) {
-      const aliases = (__TMS_ALIASES__ && __TMS_ALIASES__[canonKey]) || [];
-      for (let i = 0; i < aliases.length; i++) {
-        const t = String(aliases[i] || "").trim().toLowerCase();
-        const idx = headerLower.indexOf(t);
-        if (idx !== -1) return idx;
-      }
-      return -1;
+  // Helper: find index of a canonical key using alias mapping
+  function findAliasIdx(canonKey) {
+    const aliases = (__TMS_ALIASES__ && __TMS_ALIASES__[canonKey]) || [];
+    for (let i = 0; i < aliases.length; i++) {
+      const t = String(aliases[i] || "").trim().toLowerCase();
+      const idx = headerLower.indexOf(t);
+      if (idx !== -1) return idx;
     }
-
-    const reqDateIdx = findAliasIdx("Request Date");
-    const dueDateIdx = findAliasIdx("Due Date");
-
-    const out = [];
-
-    for (let r = 1; r < displayValues.length; r++) {
-      const rowVals = displayValues[r] || [];
-      const rawRow  = rawValues[r]     || [];
-      const obj = {};
-
-      for (let c = 0; c < header.length; c++) {
-        const keyRaw = header[c];
-        const key    = String(keyRaw || "").trim();
-        if (!key) continue;
-
-        let val = rowVals[c];
-
-        // Force Request Date & Due Date to "MM-dd-yyyy HH:mm:ss"
-        if (c === reqDateIdx || c === dueDateIdx) {
-          const raw = rawRow[c];
-          if (raw instanceof Date && !isNaN(raw)) {
-            val = Utilities.formatDate(raw, CONFIG.TIMEZONE, "MM-dd-yyyy HH:mm:ss");
-          }
-        }
-
-        obj[key] = val;
-      }
-
-      // Tag company if not already present
-      if (!obj["Company"]) obj["Company"] = companyLabel;
-      out.push(__canonicalizeTmsRow__(obj));
-    }
-    return out;
+    return -1;
   }
+
+  const reqDateIdx = findAliasIdx("Request Date");
+  const dueDateIdx = findAliasIdx("Due Date");
+
+  const out = [];
+
+  for (let r = 1; r < displayValues.length; r++) {
+    const rowVals = displayValues[r] || [];
+    const rawRow  = rawValues[r]     || [];
+    const obj = {};
+
+    for (let c = 0; c < header.length; c++) {
+      const keyRaw = header[c];
+      const key    = String(keyRaw || "").trim();
+      if (!key) continue;
+
+      let val = rowVals[c];
+
+      // Force Request Date & Due Date to "MM-dd-yyyy HH:mm:ss"
+      if (c === reqDateIdx || c === dueDateIdx) {
+        const raw = rawRow[c];
+        if (raw instanceof Date && !isNaN(raw)) {
+          val = Utilities.formatDate(raw, CONFIG.TIMEZONE, "MM-dd-yyyy HH:mm:ss");
+        }
+      }
+
+      obj[key] = val;
+    }
+
+    // Tag company if not already present
+    if (!obj["Company"]) obj["Company"] = companyLabel;
+    out.push(__canonicalizeTmsRow__(obj));
+  }
+  return out;
+}
+
+function __buildLogDataBackendCore__(session) {
+  // session is expected from requireAuth(); tolerate missing to stay fail-open for legacy callers
+  const safeSession = session || {};
 
   let rows = []
     .concat(fromCompany_(getOnwardSs(), "Onward"))
@@ -228,36 +229,29 @@ function getLogDataBackend() {
   const seen = Object.create(null);
   rows = rows.filter(r => {
     const key = [
-      r["Company"] || "",
+      String(r["Company"] || "").toUpperCase(),
       _normalizeId_(r["Request ID"] || r["request id"]),
-      String(r["Start"]  || ""),
-      String(r["End"]    || ""),
-      String(r["Status"] || "")
-    ].join("␟");
+      String(r["Start"] || r["start"] || "").trim(),
+      String(r["End"] || r["end"] || "").trim(),
+      String(r["Status"] || r["status"] || "").trim().toLowerCase()
+    ].join("||");
     if (seen[key]) return false;
     seen[key] = true;
     return true;
   });
 
-  // Optional role-based filtering
   try {
-    const session = (typeof getSession === "function") ? getSession() : null;
-    if (session && session.role === "Employee") {
-      const headerKeys = rows.length ? Object.keys(rows[0]) : [];
-      const emailKey = headerKeys.find(k => k.toLowerCase().indexOf("email") !== -1);
+    const role = (safeSession && safeSession.role || "").toLowerCase();
+    const email = (safeSession && safeSession.email || "").toLowerCase();
+    const dept = (safeSession && safeSession.department || "").toLowerCase();
+
+    if (role === "employee") {
+      const emailKey = rows.length ? Object.keys(rows[0]).find(k => k.toLowerCase().includes("email")) : null;
       if (emailKey) {
-        rows = rows.filter(r =>
-          String(r[emailKey] || "").trim().toLowerCase() ===
-          String(session.email || "").trim().toLowerCase()
-        );
+        rows = rows.filter(r => String(r[emailKey] || "").toLowerCase() === email);
       }
-    } else if (session && session.role === "Department Head") {
-      if (rows.length && Object.prototype.hasOwnProperty.call(rows[0], "Department")) {
-        rows = rows.filter(r =>
-          String(r["Department"] || "").trim().toLowerCase() ===
-          String(session.department || "").trim().toLowerCase()
-        );
-      }
+    } else if (role === "department head") {
+      rows = rows.filter(r => (r["Department"] || "").toLowerCase() === dept);
     }
   } catch (e) {
     // fail-open on any session error
@@ -266,8 +260,18 @@ function getLogDataBackend() {
   return rows;
 }
 
+function getLogDataBackend(enforceAccess) {
+  const session = requireAuth();
+  const shouldEnforce = enforceAccess !== false;
+  if (shouldEnforce) {
+    requireRoleAccess_('tab-requests');
+  }
+
+  return __buildLogDataBackendCore__(session);
+}
+
 function getFilteredLogDataBackend(filters) {
-  requireAuth();
+  requireRoleAccess_('tab-requests');
   const rows = getLogDataBackend();
   const f = filters || {};
 
@@ -330,7 +334,7 @@ function findRowInfoByRequestId_(sheet, requestId) {
  * ========================================== */
 
 function logActionBackend(action, requestId, service, processStep, remarks) {
-  requireAuth();
+  requireRoleAccess_('tab-requests');
 
   const lock = LockService.getScriptLock();
   let hasLock = false;
@@ -577,7 +581,7 @@ function logActionBackend(action, requestId, service, processStep, remarks) {
  * ========================================== */
 
 function getActiveRequestsBackend() {
-  requireAuth();
+  requireRoleAccess_('tab-requests');
   const rows = getLogDataBackend();
   const ACTIVE = {
     "open": true,
@@ -618,7 +622,7 @@ function getActiveRequestsBackend() {
 }
 
 function getRequestInfoBackend(requestId) {
-  requireAuth();
+  requireRoleAccess_('tab-requests');
   const id = _normalizeId_(requestId);
   if (!id) return null;
 
