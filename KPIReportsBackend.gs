@@ -15,9 +15,16 @@ function __kpi_readTmsRowsForSS__(ss, filters){
   const sh=ss.getSheetByName(CONFIG.SHEETS.TMS);
   const rows=readSheetAsObjects(sh);
   const f=filters||{};
+  const companyRaw=f.company||'';
+  const wantCompany=companyRaw && String(companyRaw).toUpperCase()!=='ALL';
+  const companyKey=String(companyRaw).toUpperCase();
   const startMs=f.startDate?new Date(f.startDate).getTime():null;
   const endMs=f.endDate?(new Date(f.endDate).getTime()+24*60*60*1000-1):null;
   return rows.filter(r=>{
+    if(wantCompany){
+      const rowCo=String(r['Company']||'').toUpperCase();
+      if(rowCo && rowCo!==companyKey) return false;
+    }
     if(!startMs && !endMs) return true;
     const reqMs=r['Request Date']?new Date(r['Request Date']).getTime():null;
     const dueMs=r['Due Date']?new Date(r['Due Date']).getTime():null;
